@@ -8,5 +8,6 @@ Core runtime primitives for a Swift server-state library.
 frameworks. The MVP module is intentionally independent from SwiftUI, UIKit,
 Combine, Observation, RxSwift, and networking libraries.
 
-The first supported primitive is query identity through `QueryKey`,
-`AnyQueryKey`, and `AnyQueryKeyPart`.
+The first supported primitives are query identity through `QueryKey`,
+`AnyQueryKey`, and `AnyQueryKeyPart`, plus read-only query state snapshots
+through `QueryResult`.
