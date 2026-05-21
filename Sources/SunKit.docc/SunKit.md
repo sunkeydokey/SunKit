@@ -9,6 +9,20 @@ frameworks. The MVP module is intentionally independent from SwiftUI, UIKit,
 Combine, Observation, RxSwift, and networking libraries.
 
 The first supported primitives are query identity through `QueryKey`,
-`AnyQueryKey`, and `AnyQueryKeyPart`, read-only query state snapshots through
-`QueryResult`, and option ownership through `QueryOptions`,
-`QueryCacheOptions`, and `QueryObserverOptions`.
+`AnyQueryKey`, and `AnyQueryKeyPart`, fetch declarations through `Query`,
+read-only query state snapshots through `QueryResult`, option ownership through
+`QueryOptions`, `QueryCacheOptions`, and `QueryObserverOptions`, and cache
+runtime behavior through `QueryClient`.
+
+## Topics
+
+### Query Core
+
+- <doc:QueryKeys>
+- <doc:QueryResult>
+- <doc:QueryOptions>
+- <doc:Queries>
+- <doc:QueryClient>
+- <doc:InFlightDedupe>
+- <doc:Invalidation>
+- <doc:Subscriptions>
