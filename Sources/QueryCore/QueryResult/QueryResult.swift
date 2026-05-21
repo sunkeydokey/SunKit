@@ -1,9 +1,21 @@
 import Foundation
 
-internal enum QueryStatus<Value: Sendable>: Sendable {
+/// The lifecycle status of a query result.
+///
+/// `QueryStatus` values are produced by `QueryClient` and delivered through
+/// `QueryResult`. Use the projection properties on `QueryResult` for common
+/// checks such as `isPending`, `data`, and `failureCount`.
+public enum QueryStatus<Value: Sendable>: Sendable {
+    /// No fetch has produced observable state for this query.
     case idle
+
+    /// A fetch is running, optionally with previous data still available.
     case pending(previous: Value?)
+
+    /// The query has successfully fetched data.
     case success(Value)
+
+    /// The query failed, optionally preserving stale data from an earlier success.
     case failure(Error, stale: Value?, failureCount: Int)
 }
 
@@ -13,7 +25,8 @@ internal enum QueryStatus<Value: Sendable>: Sendable {
 /// such as query fetching and subscriptions. Package users read the public
 /// projection properties, but cannot construct arbitrary query results.
 public struct QueryResult<Value: Sendable>: Sendable {
-    internal let status: QueryStatus<Value>
+    /// The lifecycle status that produced this result.
+    public let status: QueryStatus<Value>
 
     /// The latest available data, including stale data when a refetch fails.
     public let data: Value?
