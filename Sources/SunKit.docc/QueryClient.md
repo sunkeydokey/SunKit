@@ -4,13 +4,14 @@ Use `QueryClient` as the actor-isolated runtime for query cache state.
 
 ## Overview
 
-`QueryClient` owns cache storage, in-flight fetches, and subscriptions. It is
-not `@MainActor`; UI adapters choose how to deliver changes to the main actor or
-a dispatch queue.
+`QueryClient` owns cache storage, in-flight fetches, subscriptions, and
+invalidation scope. It is not `@MainActor`; UI adapters choose how to deliver
+changes to the main actor or a dispatch queue.
 
 Most apps should keep a long-lived client near the app root and inject it into
 feature code. SunKit does not provide a process-global singleton, and separate
-client instances do not share cache, in-flight task, or subscription state.
+client instances do not share cache, in-flight task, subscription, or
+invalidation state.
 
 ```swift
 let client = QueryClient()

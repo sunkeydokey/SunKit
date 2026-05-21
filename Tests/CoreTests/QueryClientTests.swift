@@ -319,3 +319,137 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
 
     #expect(await deliveries.value() == 0)
 }
+
+@Test func invalidateKeyMarksExactTypedKeyStale() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let key = QueryKey<Int>("value")
+    await client.setQueryData(key, 42)
+
+    await client.invalidate(key: key)
+    let result = await currentResult(for: key, client: client)
+
+    #expect(result?.data == 42)
+    #expect(result?.isStale == true)
+}
+
+@Test func invalidateKeyOnActiveQueryTriggersBackgroundRefetch() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let counter = FetchCounter()
+    let key = QueryKey<Int>("value")
+    let query = Query(key: key) {
+        await counter.next()
+    }
+
+    _ = await client.fetchQuery(query)
+    let subscription = await client.subscribe(to: key, receiveCurrentValue: false) { _ in }
+    await client.invalidate(key: key)
+
+    let refetched = await eventually {
+        await client.getQueryData(key) == 2
+    }
+
+    #expect(refetched)
+    #expect(await counter.value() == 2)
+    await subscription.cancel()
+}
+
+@Test func invalidateKeyOnInactiveQueryDoesNotImmediatelyRefetch() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let counter = FetchCounter()
+    let key = QueryKey<Int>("value")
+    let query = Query(key: key) {
+        await counter.next()
+    }
+
+    _ = await client.fetchQuery(query)
+    await client.invalidate(key: key)
+    try? await Task.sleep(nanoseconds: 50_000_000)
+
+    #expect(await counter.value() == 1)
+    #expect(await client.getQueryData(key) == 1)
+}
+
+@Test func prefixInvalidationMatchesMultipleKeys() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let first = QueryKey<Int>("items", 1)
+    let second = QueryKey<Int>("items", 2)
+    await client.setQueryData(first, 1)
+    await client.setQueryData(second, 2)
+
+    await client.invalidateQueries(AnyQueryKey("items"), exact: false)
+
+    let firstResult = await currentResult(for: first, client: client)
+    let secondResult = await currentResult(for: second, client: client)
+    #expect(firstResult?.isStale == true)
+    #expect(secondResult?.isStale == true)
+}
+
+@Test func exactErasedInvalidationMatchesOneKey() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let root = QueryKey<Int>("items")
+    let child = QueryKey<Int>("items", 1)
+    await client.setQueryData(root, 1)
+    await client.setQueryData(child, 2)
+
+    await client.invalidateQueries(AnyQueryKey("items"), exact: true)
+
+    let rootResult = await currentResult(for: root, client: client)
+    let childResult = await currentResult(for: child, client: client)
+    #expect(rootResult?.isStale == true)
+    #expect(childResult?.isStale == false)
+}
+
+@Test func activePrefixInvalidationRefetchesActiveMatchingQueriesOnly() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let activeCounter = FetchCounter()
+    let inactiveCounter = FetchCounter()
+    let activeKey = QueryKey<Int>("items", "active")
+    let inactiveKey = QueryKey<Int>("items", "inactive")
+    let activeQuery = Query(key: activeKey) {
+        await activeCounter.next()
+    }
+    let inactiveQuery = Query(key: inactiveKey) {
+        await inactiveCounter.next()
+    }
+
+    _ = await client.fetchQuery(activeQuery)
+    _ = await client.fetchQuery(inactiveQuery)
+    let subscription = await client.subscribe(to: activeKey, receiveCurrentValue: false) { _ in }
+
+    await client.invalidateQueries(AnyQueryKey("items"), exact: false)
+
+    let refetched = await eventually {
+        await client.getQueryData(activeKey) == 2
+    }
+
+    #expect(refetched)
+    #expect(await client.getQueryData(inactiveKey) == 1)
+    #expect(await activeCounter.value() == 2)
+    #expect(await inactiveCounter.value() == 1)
+    await subscription.cancel()
+}
+
+@Test func removedQueryDataIsNotReturned() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("value")
+    await client.setQueryData(key, 42)
+
+    await client.removeQueries(AnyQueryKey("value"), exact: true)
+
+    #expect(await client.getQueryData(key) == nil)
+}
+
+private func currentResult<Value: Sendable>(
+    for key: QueryKey<Value>,
+    client: QueryClient
+) async -> QueryResult<Value>? {
+    let (stream, continuation) = AsyncStream.makeStream(of: QueryResult<Value>.self)
+    let subscription = await client.subscribe(to: key) { result in
+        continuation.yield(result)
+    }
+    var iterator = stream.makeAsyncIterator()
+    let result = await iterator.next()
+    await subscription.cancel()
+    continuation.finish()
+    return result
+}

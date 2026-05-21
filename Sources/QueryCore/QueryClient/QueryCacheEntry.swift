@@ -10,13 +10,23 @@ internal struct QueryCacheID: Hashable, Sendable {
     }
 }
 
-internal final class QueryCacheEntry<Value: Sendable>: @unchecked Sendable {
+internal protocol AnyQueryCacheEntry: Sendable {
+    var key: AnyQueryKey { get }
+    var subscriberCount: Int { get }
+
+    func matches(_ key: AnyQueryKey, exact: Bool) -> Bool
+    func markInvalidated() -> [QueryDelivery]
+    func makeBackgroundRefetch(_ client: QueryClient) -> Task<Void, Never>?
+}
+
+internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unchecked Sendable {
     struct Subscriber: Sendable {
         let queue: DispatchQueue?
         let listener: @Sendable (QueryResult<Value>) -> Void
     }
 
     let typedKey: QueryKey<Value>
+    var key: AnyQueryKey { typedKey.rawValue }
     var result: QueryResult<Value>
     var updatedAt: Date?
     var isInvalidated: Bool
@@ -50,6 +60,32 @@ internal final class QueryCacheEntry<Value: Sendable>: @unchecked Sendable {
         }
 
         return now.timeIntervalSince(updatedAt) >= cacheOptions.staleTime
+    }
+
+    func matches(_ key: AnyQueryKey, exact: Bool) -> Bool {
+        exact ? self.key == key : self.key.starts(with: key)
+    }
+
+    func markInvalidated() -> [QueryDelivery] {
+        isInvalidated = true
+        result = QueryResult(
+            status: result.status,
+            isFetching: result.isFetching,
+            isStale: true,
+            isPlaceholderData: result.isPlaceholderData,
+            updatedAt: result.updatedAt
+        )
+        return deliveries(for: result)
+    }
+
+    func makeBackgroundRefetch(_ client: QueryClient) -> Task<Void, Never>? {
+        guard subscriberCount > 0, let lastQuery else {
+            return nil
+        }
+
+        return Task {
+            _ = await client.fetchQuery(lastQuery)
+        }
     }
 
     func deliveries(for result: QueryResult<Value>) -> [QueryDelivery] {

@@ -23,4 +23,5 @@ Cancel the returned `QuerySubscription` to stop receiving publications:
 await subscription.cancel()
 ```
 
-Core tracks active queries through subscriber count.
+Core tracks active queries through subscriber count. Active invalidated queries
+can trigger background refetches when the entry has a known previous fetcher.

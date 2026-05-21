@@ -11,7 +11,7 @@ public actor QueryClient {
     /// The default cache lifecycle options used by this client.
     public nonisolated let defaultCacheOptions: QueryCacheOptions
 
-    private var cache: [QueryCacheID: Any]
+    private var cache: [QueryCacheID: any AnyQueryCacheEntry]
 
     /// Creates a query client with isolated cache state.
     ///
@@ -117,6 +117,34 @@ public actor QueryClient {
         }
     }
 
+    /// Invalidates one typed query key exactly.
+    ///
+    /// If the matching query is active and has a known previous fetcher, the
+    /// client starts a background refetch. Otherwise the entry is only marked
+    /// stale.
+    public func invalidate<Value: Sendable>(key: QueryKey<Value>) async {
+        await invalidate(id: QueryCacheID(key), key: key.rawValue, exact: true)
+    }
+
+    /// Invalidates queries by exact or prefix key matching.
+    ///
+    /// Prefix invalidation is type-erased and may match multiple value types
+    /// that share the same raw key parts.
+    public func invalidateQueries(_ key: AnyQueryKey, exact: Bool = false) async {
+        await invalidate(id: nil, key: key, exact: exact)
+    }
+
+    /// Removes queries by exact or prefix key matching.
+    public func removeQueries(_ key: AnyQueryKey, exact: Bool = false) async {
+        let ids = cache
+            .filter { _, entry in entry.matches(key, exact: exact) }
+            .map(\.key)
+
+        for id in ids {
+            cache[id] = nil
+        }
+    }
+
     /// Returns cached data for a typed key, if present.
     public func getQueryData<Value: Sendable>(_ key: QueryKey<Value>) async -> Value? {
         existingEntry(for: key)?.result.data
@@ -139,6 +167,34 @@ public actor QueryClient {
     /// Removes all cached queries.
     public func clear() async {
         cache.removeAll()
+    }
+
+    private func invalidate(
+        id: QueryCacheID?,
+        key: AnyQueryKey,
+        exact: Bool
+    ) async {
+        let matchingEntries: [any AnyQueryCacheEntry]
+        if let id, let entry = cache[id] {
+            matchingEntries = [entry]
+        } else {
+            matchingEntries = cache
+                .filter { _, entry in entry.matches(key, exact: exact) }
+                .map(\.value)
+        }
+
+        var deliveries: [QueryDelivery] = []
+        var refetches: [Task<Void, Never>] = []
+
+        for entry in matchingEntries {
+            deliveries.append(contentsOf: entry.markInvalidated())
+            if let refetch = entry.makeBackgroundRefetch(self) {
+                refetches.append(refetch)
+            }
+        }
+
+        deliver(deliveries)
+        _ = refetches
     }
 
     private func entry<Value: Sendable>(for key: QueryKey<Value>) -> QueryCacheEntry<Value> {
