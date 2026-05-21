@@ -132,6 +132,30 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     #expect(await client.getQueryData(key) == 99)
 }
 
+@Test func fetchStartPublishesPendingResult() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("value")
+    let (stream, continuation) = AsyncStream.makeStream(of: QueryResult<Int>.self)
+    let subscription = await client.subscribe(to: key, receiveCurrentValue: false) { result in
+        continuation.yield(result)
+    }
+    var iterator = stream.makeAsyncIterator()
+    let query = Query(key: key) {
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        return 42
+    }
+
+    async let fetchResult = client.fetchQuery(query)
+    let pending = await iterator.next()
+    let result = await fetchResult
+
+    #expect(pending?.isPending == true)
+    #expect(pending?.isFetching == true)
+    #expect(result.data == 42)
+    await subscription.cancel()
+    continuation.finish()
+}
+
 @Test func sameKeyConcurrentFetchDedupes() async {
     let client = QueryClient()
     let counter = FetchCounter()
@@ -246,4 +270,52 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
 
     #expect(!fresh.isStale)
     #expect(stale.isStale)
+}
+
+@Test func subscriberReceivesCurrentValueWhenRequested() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let key = QueryKey<Int>("value")
+    await client.setQueryData(key, 42)
+    let (stream, continuation) = AsyncStream.makeStream(of: QueryResult<Int>.self)
+    let subscription = await client.subscribe(to: key) { result in
+        continuation.yield(result)
+    }
+    var iterator = stream.makeAsyncIterator()
+
+    let current = await iterator.next()
+
+    #expect(current?.data == 42)
+    #expect(current?.isSuccess == true)
+    await subscription.cancel()
+    continuation.finish()
+}
+
+@Test func subscribeDoesNotAutoFetch() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("value")
+    let counter = FetchCounter()
+    let subscription = await client.subscribe(to: key, receiveCurrentValue: false) { _ in }
+
+    try? await Task.sleep(nanoseconds: 50_000_000)
+
+    #expect(await counter.value() == 0)
+    #expect(await client.getQueryData(key) == nil)
+    await subscription.cancel()
+}
+
+@Test func unsubscribeStopsDelivery() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("value")
+    let deliveries = FetchCounter()
+    let subscription = await client.subscribe(to: key, receiveCurrentValue: false) { _ in
+        Task {
+            _ = await deliveries.next()
+        }
+    }
+    await subscription.cancel()
+
+    await client.setQueryData(key, 42)
+    try? await Task.sleep(nanoseconds: 50_000_000)
+
+    #expect(await deliveries.value() == 0)
 }

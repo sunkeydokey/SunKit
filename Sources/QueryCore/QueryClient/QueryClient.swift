@@ -48,12 +48,13 @@ public actor QueryClient {
         let requestID = entry.requestID
         entry.lastQuery = query
 
-        entry.result = QueryResult(
+        let pending = QueryResult(
             status: .pending(previous: previousData),
             isFetching: true,
             isStale: entry.isStale(now: now, cacheOptions: defaultCacheOptions),
             updatedAt: previousUpdatedAt
         )
+        entry.result = pending
 
         let task = Task<QueryResult<Value>, Never> {
             await Self.execute(
@@ -67,8 +68,11 @@ public actor QueryClient {
         }
         entry.inFlight = task
 
+        deliver(entry.deliveries(for: pending))
+
         let result = await task.value
-        finishFetch(result, for: query.key, requestID: requestID)
+        let deliveries = finishFetch(result, for: query.key, requestID: requestID)
+        deliver(deliveries)
         return result
     }
 
@@ -89,6 +93,30 @@ public actor QueryClient {
         throw result.error ?? QueryClientError.missingData
     }
 
+    /// Subscribes to result changes for a typed query key.
+    ///
+    /// Subscribing only registers a listener and optionally delivers the current
+    /// value. It never starts a fetch by itself.
+    public func subscribe<Value: Sendable>(
+        to key: QueryKey<Value>,
+        receiveCurrentValue: Bool = true,
+        deliverOn queue: DispatchQueue? = nil,
+        _ listener: @escaping @Sendable (QueryResult<Value>) -> Void
+    ) async -> QuerySubscription {
+        let entry = entry(for: key)
+        let id = UUID()
+        let subscriber = QueryCacheEntry.Subscriber(queue: queue, listener: listener)
+        entry.subscribers[id] = subscriber
+
+        if receiveCurrentValue {
+            deliver([entry.delivery(for: subscriber, result: entry.result)])
+        }
+
+        return QuerySubscription {
+            await self.cancelSubscription(id, key: key)
+        }
+    }
+
     /// Returns cached data for a typed key, if present.
     public func getQueryData<Value: Sendable>(_ key: QueryKey<Value>) async -> Value? {
         existingEntry(for: key)?.result.data
@@ -105,6 +133,7 @@ public actor QueryClient {
             isStale: entry.isStale(now: now, cacheOptions: defaultCacheOptions),
             updatedAt: now
         )
+        deliver(entry.deliveries(for: entry.result))
     }
 
     /// Removes all cached queries.
@@ -130,9 +159,9 @@ public actor QueryClient {
         _ result: QueryResult<Value>,
         for key: QueryKey<Value>,
         requestID: UInt64
-    ) {
+    ) -> [QueryDelivery] {
         guard let entry = existingEntry(for: key), entry.requestID == requestID else {
-            return
+            return []
         }
 
         entry.inFlight = nil
@@ -141,6 +170,22 @@ public actor QueryClient {
         entry.isInvalidated = result.isError
         if result.isSuccess {
             entry.isInvalidated = false
+        }
+
+        return entry.deliveries(for: result)
+    }
+
+    private func cancelSubscription<Value: Sendable>(_ id: UUID, key: QueryKey<Value>) {
+        guard let entry = existingEntry(for: key) else {
+            return
+        }
+
+        entry.subscribers[id] = nil
+    }
+
+    private nonisolated func deliver<S: Sequence>(_ deliveries: S) where S.Element == QueryDelivery {
+        for delivery in deliveries {
+            delivery.deliver()
         }
     }
 
@@ -222,4 +267,18 @@ public actor QueryClient {
 
 private enum QueryClientError: Error {
     case missingData
+}
+
+/// A handle for cancelling a Core query subscription.
+public struct QuerySubscription: Sendable {
+    private let cancelHandler: @Sendable () async -> Void
+
+    internal init(cancel: @escaping @Sendable () async -> Void) {
+        self.cancelHandler = cancel
+    }
+
+    /// Cancels the subscription so it no longer receives query publications.
+    public func cancel() async {
+        await cancelHandler()
+    }
 }

@@ -11,6 +11,11 @@ internal struct QueryCacheID: Hashable, Sendable {
 }
 
 internal final class QueryCacheEntry<Value: Sendable>: @unchecked Sendable {
+    struct Subscriber: Sendable {
+        let queue: DispatchQueue?
+        let listener: @Sendable (QueryResult<Value>) -> Void
+    }
+
     let typedKey: QueryKey<Value>
     var result: QueryResult<Value>
     var updatedAt: Date?
@@ -18,6 +23,11 @@ internal final class QueryCacheEntry<Value: Sendable>: @unchecked Sendable {
     var requestID: UInt64
     var inFlight: Task<QueryResult<Value>, Never>?
     var lastQuery: Query<Value>?
+    var subscribers: [UUID: Subscriber]
+
+    var subscriberCount: Int {
+        subscribers.count
+    }
 
     init(key: QueryKey<Value>) {
         self.typedKey = key
@@ -27,6 +37,7 @@ internal final class QueryCacheEntry<Value: Sendable>: @unchecked Sendable {
         self.requestID = 0
         self.inFlight = nil
         self.lastQuery = nil
+        self.subscribers = [:]
     }
 
     func isStale(now: Date, cacheOptions: QueryCacheOptions) -> Bool {
@@ -40,4 +51,28 @@ internal final class QueryCacheEntry<Value: Sendable>: @unchecked Sendable {
 
         return now.timeIntervalSince(updatedAt) >= cacheOptions.staleTime
     }
+
+    func deliveries(for result: QueryResult<Value>) -> [QueryDelivery] {
+        subscribers.values.map { subscriber in
+            delivery(for: subscriber, result: result)
+        }
+    }
+
+    func delivery(for subscriber: Subscriber, result: QueryResult<Value>) -> QueryDelivery {
+        QueryDelivery {
+            if let queue = subscriber.queue {
+                queue.async {
+                    subscriber.listener(result)
+                }
+            } else {
+                Task {
+                    subscriber.listener(result)
+                }
+            }
+        }
+    }
+}
+
+internal struct QueryDelivery: Sendable {
+    let deliver: @Sendable () -> Void
 }
