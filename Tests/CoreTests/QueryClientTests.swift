@@ -549,6 +549,45 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     await subscription.cancel()
 }
 
+@Test func setQueryDataMidFlightAllowsSubsequentFetchToRunFresh() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("value")
+    let slowQuery = Query(key: key) {
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        return 1
+    }
+    let freshQuery = Query(key: key) { 200 }
+
+    async let _ = client.fetchQuery(slowQuery)
+    try? await Task.sleep(nanoseconds: 20_000_000)
+    await client.setQueryData(key, 99)
+
+    let second = await client.fetchQuery(freshQuery)
+
+    #expect(second.data == 200)
+    #expect(await client.getQueryData(key) == 200)
+}
+
+@Test func updateQueryDataMidFlightAllowsSubsequentFetchToRunFresh() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("value")
+    await client.setQueryData(key, 10)
+    let slowQuery = Query(key: key) {
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        return 1
+    }
+    let freshQuery = Query(key: key) { 200 }
+
+    async let _ = client.fetchQuery(slowQuery)
+    try? await Task.sleep(nanoseconds: 20_000_000)
+    await client.updateQueryData(key) { $0 + 5 }
+
+    let second = await client.fetchQuery(freshQuery)
+
+    #expect(second.data == 200)
+    #expect(await client.getQueryData(key) == 200)
+}
+
 @Test func setQueryDataWhileInFlightDoesNotGetOverwritten() async {
     let client = QueryClient()
     let key = QueryKey<Int>("value")

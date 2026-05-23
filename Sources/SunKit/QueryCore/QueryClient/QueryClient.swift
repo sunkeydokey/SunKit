@@ -158,6 +158,7 @@ public actor QueryClient {
         let entry = entry(for: key)
         let now = Date()
         entry.requestID = issueRequestID()
+        entry.inFlight = nil
         entry.staleTimer?.cancel()
         entry.staleTimer = nil
         entry.updatedAt = now
@@ -188,6 +189,7 @@ public actor QueryClient {
         let now = Date()
         let updatedData = update(currentData)
         entry.requestID = issueRequestID()
+        entry.inFlight = nil
         entry.staleTimer?.cancel()
         entry.staleTimer = nil
         entry.updatedAt = now
