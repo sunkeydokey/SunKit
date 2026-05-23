@@ -29,3 +29,4 @@ declarations through `Mutation` and explicit mutation execution through
 - <doc:Invalidation>
 - <doc:Subscriptions>
 - <doc:Mutations>
+- <doc:SwiftUIAdapter>

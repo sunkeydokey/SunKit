@@ -15,16 +15,28 @@ let package = Package(
             name: "SunKit",
             targets: ["SunKit"]
         ),
+        .library(
+            name: "SunKitSwiftUI",
+            targets: ["SunKitSwiftUI"]
+        ),
     ],
     targets: [
         .target(
             name: "SunKit",
-            path: "Sources"
+            path: "Sources/SunKit"
+        ),
+        .target(
+            name: "SunKitSwiftUI",
+            dependencies: ["SunKit"],
+            path: "Sources/SunKitSwiftUI"
         ),
         .testTarget(
             name: "SunKitTests",
-            dependencies: ["SunKit"],
-            path: "Tests"
+            dependencies: [
+                "SunKit",
+                "SunKitSwiftUI",
+            ],
+            path: "Tests/CoreTests"
         ),
     ],
     swiftLanguageModes: [.v6]

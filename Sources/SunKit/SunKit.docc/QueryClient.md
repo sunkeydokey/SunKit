@@ -26,6 +26,11 @@ query.options ?? client.defaultQueryOptions
 Cache lifecycle defaults come from `defaultCacheOptions`. MVP Core does not
 include per-query cache overrides or per-key default merging.
 
+Successful results become stale according to `defaultCacheOptions.staleTime`.
+For nonzero stale times, `QueryClient` publishes a new result with
+`isStale == true` when the freshness window elapses. Natural staleness does
+not mark the entry invalidated and does not start a refetch by itself.
+
 ## Typed Cache Access
 
 `getQueryData` and `setQueryData` use typed keys. The same raw key parts with

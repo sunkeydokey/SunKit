@@ -14,6 +14,7 @@ xcuserdata
 *.xccheckout
 *.moved-aside
 DerivedData/
+.deriveddata*/
 *.xcuserstate
 *.hmap
 *.ipa
@@ -81,3 +82,8 @@ buildServer.json
 
 # Local planning / agent context
 .local/
+
+# Xcode project user data (Examples app)
+Examples/**/*.xcuserstate
+Examples/**/xcuserdata/
+Examples/**/.swiftpm/

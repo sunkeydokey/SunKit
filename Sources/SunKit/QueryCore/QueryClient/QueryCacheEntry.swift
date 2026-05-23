@@ -17,6 +17,7 @@ internal protocol AnyQueryCacheEntry: Sendable {
     func matches(_ key: AnyQueryKey, exact: Bool) -> Bool
     func markInvalidated() -> [QueryDelivery]
     func makeBackgroundRefetch(_ client: QueryClient) -> Task<Void, Never>?
+    func cancelStaleTimer()
 }
 
 internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unchecked Sendable {
@@ -32,6 +33,7 @@ internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unch
     var isInvalidated: Bool
     var requestID: UInt64
     var inFlight: Task<QueryResult<Value>, Never>?
+    var staleTimer: Task<Void, Never>?
     var lastQuery: Query<Value>?
     var subscribers: [UUID: Subscriber]
 
@@ -46,6 +48,7 @@ internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unch
         self.isInvalidated = false
         self.requestID = 0
         self.inFlight = nil
+        self.staleTimer = nil
         self.lastQuery = nil
         self.subscribers = [:]
     }
@@ -67,7 +70,20 @@ internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unch
     }
 
     func markInvalidated() -> [QueryDelivery] {
+        staleTimer?.cancel()
+        staleTimer = nil
         isInvalidated = true
+        result = QueryResult(
+            status: result.status,
+            isFetching: result.isFetching,
+            isStale: true,
+            isPlaceholderData: result.isPlaceholderData,
+            updatedAt: result.updatedAt
+        )
+        return deliveries(for: result)
+    }
+
+    func markStale() -> [QueryDelivery] {
         result = QueryResult(
             status: result.status,
             isFetching: result.isFetching,
@@ -86,6 +102,11 @@ internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unch
         return Task {
             _ = await client.fetchQuery(lastQuery)
         }
+    }
+
+    func cancelStaleTimer() {
+        staleTimer?.cancel()
+        staleTimer = nil
     }
 
     func deliveries(for result: QueryResult<Value>) -> [QueryDelivery] {

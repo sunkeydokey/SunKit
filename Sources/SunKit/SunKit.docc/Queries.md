@@ -4,7 +4,7 @@ Use `Query` to describe how a typed key fetches data.
 
 ## Overview
 
-A query is a fetch declaration, not a running operation. It stores a
+`Query` is a fetch declaration, not a running operation. It stores a
 `QueryKey<Value>`, optional execution options, and a fetcher that `QueryClient`
 can run.
 
@@ -19,6 +19,8 @@ let key = QueryKey<[Project]>("projects", page)
 let query = Query(key: key) {
     try await api.fetchProjects(page: page)
 }
+
+let result = await client.fetchQuery(query)
 ```
 
 Completion-based APIs can also be wrapped:

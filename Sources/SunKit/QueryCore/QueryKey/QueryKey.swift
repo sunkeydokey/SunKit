@@ -80,6 +80,42 @@ public struct AnyQueryKeyPart: Hashable, Sendable {
     }
 }
 
+extension AnyQueryKeyPart: ExpressibleByStringLiteral {
+    public typealias StringLiteralType = String
+
+    /// Creates a key part from a string literal.
+    public init(stringLiteral value: String) {
+        self.init(value)
+    }
+}
+
+extension AnyQueryKeyPart: ExpressibleByIntegerLiteral {
+    public typealias IntegerLiteralType = Int
+
+    /// Creates a key part from an integer literal.
+    public init(integerLiteral value: Int) {
+        self.init(value)
+    }
+}
+
+extension AnyQueryKeyPart: ExpressibleByFloatLiteral {
+    public typealias FloatLiteralType = Double
+
+    /// Creates a key part from a floating-point literal.
+    public init(floatLiteral value: Double) {
+        self.init(value)
+    }
+}
+
+extension AnyQueryKeyPart: ExpressibleByBooleanLiteral {
+    public typealias BooleanLiteralType = Bool
+
+    /// Creates a key part from a Boolean literal.
+    public init(booleanLiteral value: Bool) {
+        self.init(value)
+    }
+}
+
 private protocol QueryKeyPartBox: Sendable {
     func equals(_ other: any QueryKeyPartBox) -> Bool
     func hash(into hasher: inout Hasher)

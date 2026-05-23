@@ -16,6 +16,13 @@ let project = QueryKey<Project>("project", id)
 Key part equality includes the concrete Swift type. This means `"1"` and `1`
 are different key parts.
 
+When an API accepts type-erased key parts, array literals can be used:
+
+```swift
+let parts: [AnyQueryKeyPart] = ["projects", page]
+let key = QueryKey<[Project]>(parts)
+```
+
 Use `AnyQueryKey` for prefix matching during invalidation:
 
 ```swift

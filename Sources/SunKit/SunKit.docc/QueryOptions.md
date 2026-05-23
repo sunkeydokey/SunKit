@@ -19,3 +19,8 @@ exponential backoff capped at 30 seconds. Cache data is stale immediately by
 default and inactive cache entries may remain for five minutes. Observers are
 enabled by default and refetch on subscribe, scene activation, and network
 reconnect only when cached data is stale.
+
+When `staleTime` is greater than zero, a successful cache entry publishes a
+new stale result after the freshness window elapses. This lets subscribers and
+UI state observe `QueryResult.isStale` changing over time without requiring a
+manual invalidation.

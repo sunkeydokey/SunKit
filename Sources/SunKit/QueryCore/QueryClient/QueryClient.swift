@@ -141,6 +141,7 @@ public actor QueryClient {
             .map(\.key)
 
         for id in ids {
+            cache[id]?.cancelStaleTimer()
             cache[id] = nil
         }
     }
@@ -154,6 +155,8 @@ public actor QueryClient {
     public func setQueryData<Value: Sendable>(_ key: QueryKey<Value>, _ value: Value) async {
         let entry = entry(for: key)
         let now = Date()
+        entry.staleTimer?.cancel()
+        entry.staleTimer = nil
         entry.updatedAt = now
         entry.isInvalidated = false
         entry.result = QueryResult(
@@ -161,6 +164,7 @@ public actor QueryClient {
             isStale: entry.isStale(now: now, cacheOptions: defaultCacheOptions),
             updatedAt: now
         )
+        scheduleStaleTimer(for: entry, updatedAt: now)
         deliver(entry.deliveries(for: entry.result))
     }
 
@@ -180,6 +184,8 @@ public actor QueryClient {
 
         let now = Date()
         let updatedData = update(currentData)
+        entry.staleTimer?.cancel()
+        entry.staleTimer = nil
         entry.updatedAt = now
         entry.isInvalidated = false
         entry.result = QueryResult(
@@ -187,6 +193,7 @@ public actor QueryClient {
             isStale: entry.isStale(now: now, cacheOptions: defaultCacheOptions),
             updatedAt: now
         )
+        scheduleStaleTimer(for: entry, updatedAt: now)
         deliver(entry.deliveries(for: entry.result))
     }
 
@@ -253,6 +260,9 @@ public actor QueryClient {
 
     /// Removes all cached queries.
     public func clear() async {
+        for entry in cache.values {
+            entry.cancelStaleTimer()
+        }
         cache.removeAll()
     }
 
@@ -308,14 +318,57 @@ public actor QueryClient {
         }
 
         entry.inFlight = nil
+        entry.staleTimer?.cancel()
+        entry.staleTimer = nil
         entry.result = result
         entry.updatedAt = result.updatedAt
         entry.isInvalidated = result.isError
         if result.isSuccess {
             entry.isInvalidated = false
         }
+        if result.isSuccess, let updatedAt = result.updatedAt {
+            scheduleStaleTimer(for: entry, updatedAt: updatedAt)
+        }
 
         return entry.deliveries(for: result)
+    }
+
+    private func markStaleIfCurrent<Value: Sendable>(
+        key: QueryKey<Value>,
+        updatedAt: Date
+    ) {
+        guard let entry = existingEntry(for: key), entry.updatedAt == updatedAt else {
+            return
+        }
+
+        entry.staleTimer = nil
+
+        guard !entry.result.isStale else {
+            return
+        }
+
+        deliver(entry.markStale())
+    }
+
+    private func scheduleStaleTimer<Value: Sendable>(
+        for entry: QueryCacheEntry<Value>,
+        updatedAt: Date
+    ) {
+        let staleTime = defaultCacheOptions.staleTime
+        guard staleTime > 0, !entry.result.isStale else {
+            return
+        }
+
+        let key = entry.typedKey
+        entry.staleTimer = Task { [weak self] in
+            let nanoseconds = UInt64(staleTime * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await self?.markStaleIfCurrent(key: key, updatedAt: updatedAt)
+        }
     }
 
     private func cancelSubscription<Value: Sendable>(_ id: UUID, key: QueryKey<Value>) {
