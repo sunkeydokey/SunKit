@@ -549,6 +549,39 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     await subscription.cancel()
 }
 
+@Test func setQueryDataWhileInFlightDoesNotGetOverwritten() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("value")
+    let slowQuery = Query(key: key) {
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        return 1
+    }
+
+    async let slowResult = client.fetchQuery(slowQuery)
+    try? await Task.sleep(nanoseconds: 20_000_000)
+    await client.setQueryData(key, 99)
+    _ = await slowResult
+
+    #expect(await client.getQueryData(key) == 99)
+}
+
+@Test func updateQueryDataWhileInFlightDoesNotGetOverwritten() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("value")
+    await client.setQueryData(key, 10)
+    let slowQuery = Query(key: key) {
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        return 1
+    }
+
+    async let slowResult = client.fetchQuery(slowQuery)
+    try? await Task.sleep(nanoseconds: 20_000_000)
+    await client.updateQueryData(key) { $0 + 5 }
+    _ = await slowResult
+
+    #expect(await client.getQueryData(key) == 15)
+}
+
 @Test func removedQueryDataIsNotReturned() async {
     let client = QueryClient()
     let key = QueryKey<Int>("value")

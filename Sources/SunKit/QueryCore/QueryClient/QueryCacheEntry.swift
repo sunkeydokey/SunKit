@@ -17,6 +17,7 @@ internal protocol AnyQueryCacheEntry: Sendable {
     func matches(_ key: AnyQueryKey, exact: Bool) -> Bool
     func markInvalidated() -> [QueryDelivery]
     func makeBackgroundRefetch(_ client: QueryClient) -> Task<Void, Never>?
+    func cancelInFlight()
     func cancelStaleTimer()
 }
 
@@ -102,6 +103,11 @@ internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unch
         return Task {
             _ = await client.fetchQuery(lastQuery)
         }
+    }
+
+    func cancelInFlight() {
+        inFlight?.cancel()
+        inFlight = nil
     }
 
     func cancelStaleTimer() {
