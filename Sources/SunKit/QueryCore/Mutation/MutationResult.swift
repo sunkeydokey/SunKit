@@ -28,6 +28,9 @@ public struct MutationResult<Output: Sendable>: Sendable {
     /// The mutation error when the result is failed.
     public let error: Error?
 
+    /// A Boolean value indicating whether no mutation has run yet.
+    public let isIdle: Bool
+
     /// A Boolean value indicating whether the mutation is running.
     public let isPending: Bool
 
@@ -59,6 +62,7 @@ public struct MutationResult<Output: Sendable>: Sendable {
         case .idle:
             self.data = nil
             self.error = nil
+            self.isIdle = true
             self.isPending = false
             self.isSuccess = false
             self.isError = false
@@ -66,6 +70,7 @@ public struct MutationResult<Output: Sendable>: Sendable {
         case .pending:
             self.data = nil
             self.error = nil
+            self.isIdle = false
             self.isPending = true
             self.isSuccess = false
             self.isError = false
@@ -73,6 +78,7 @@ public struct MutationResult<Output: Sendable>: Sendable {
         case let .success(output):
             self.data = output
             self.error = nil
+            self.isIdle = false
             self.isPending = false
             self.isSuccess = true
             self.isError = false
@@ -80,6 +86,7 @@ public struct MutationResult<Output: Sendable>: Sendable {
         case let .failure(error):
             self.data = nil
             self.error = error
+            self.isIdle = false
             self.isPending = false
             self.isSuccess = false
             self.isError = true

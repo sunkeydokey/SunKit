@@ -41,6 +41,7 @@ private final class EventRecorder: @unchecked Sendable {
 
     #expect(result.data == "created")
     #expect(result.error == nil)
+    #expect(!result.isIdle)
     #expect(result.isSuccess)
     #expect(!result.isPending)
     #expect(!result.isError)
@@ -55,6 +56,7 @@ private final class EventRecorder: @unchecked Sendable {
 
     #expect(result.data == nil)
     #expect(result.error is MutationTestError)
+    #expect(!result.isIdle)
     #expect(result.isError)
     #expect(!result.isPending)
     #expect(!result.isSuccess)
