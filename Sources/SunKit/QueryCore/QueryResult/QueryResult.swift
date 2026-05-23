@@ -20,7 +20,7 @@ public struct QueryStatus<Value: Sendable>: Sendable {
         Self(storage: .idle)
     }
 
-    internal static func pending(previous: Value?) -> Self {
+    package static func pending(previous: Value?) -> Self {
         Self(storage: .pending(previous: previous))
     }
 
@@ -72,7 +72,7 @@ public struct QueryResult<Value: Sendable>: Sendable {
     /// The consecutive failure count for the current failed execution.
     public let failureCount: Int
 
-    internal init(
+    package init(
         status: QueryStatus<Value>,
         isFetching: Bool = false,
         isStale: Bool = false,

@@ -631,6 +631,42 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     #expect(await client.getQueryData(key) == nil)
 }
 
+@Test func entryRemovedFromCacheAfterGCTimeWithNoSubscribers() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0, gcTime: 0.05))
+    let key = QueryKey<Int>("gc-test")
+    await client.setQueryData(key, 42)
+
+    try? await Task.sleep(nanoseconds: 100_000_000) // wait > gcTime
+
+    #expect(await client.getQueryData(key) == nil)
+}
+
+@Test func gcTimerCancelledWhenNewSubscriberArrives() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0, gcTime: 0.1))
+    let key = QueryKey<Int>("gc-cancel-test")
+    await client.setQueryData(key, 42)
+
+    // Subscribe immediately — should cancel any GC timer
+    let subscription = await client.subscribe(to: key, receiveCurrentValue: false) { _ in }
+
+    try? await Task.sleep(nanoseconds: 150_000_000) // wait > gcTime
+
+    // Data must still be present because subscriber was active
+    #expect(await client.getQueryData(key) == 42)
+    await subscription.cancel()
+}
+
+@Test func entryRemovedImmediatelyWhenGCTimeIsZero() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0, gcTime: 0))
+    let key = QueryKey<Int>("gc-zero-test")
+    await client.setQueryData(key, 7)
+
+    // No subscribers, gcTime == 0: entry should be removed on next event loop turn
+    try? await Task.sleep(nanoseconds: 20_000_000)
+
+    #expect(await client.getQueryData(key) == nil)
+}
+
 private func currentResult<Value: Sendable>(
     for key: QueryKey<Value>,
     client: QueryClient

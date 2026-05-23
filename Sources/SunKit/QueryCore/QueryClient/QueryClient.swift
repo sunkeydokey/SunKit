@@ -105,6 +105,7 @@ public actor QueryClient {
         _ listener: @escaping @Sendable (QueryResult<Value>) -> Void
     ) async -> QuerySubscription {
         let entry = entry(for: key)
+        entry.cancelGCTimer()
         let id = UUID()
         let subscriber = QueryCacheEntry.Subscriber(queue: queue, listener: listener)
         entry.subscribers[id] = subscriber
@@ -144,6 +145,7 @@ public actor QueryClient {
         for id in ids {
             cache[id]?.cancelInFlight()
             cache[id]?.cancelStaleTimer()
+            cache[id]?.cancelGCTimer()
             cache[id] = nil
         }
     }
@@ -169,6 +171,9 @@ public actor QueryClient {
             updatedAt: now
         )
         scheduleStaleTimer(for: entry, updatedAt: now)
+        if entry.subscriberCount == 0 {
+            scheduleGCTimer(for: entry)
+        }
         deliver(entry.deliveries(for: entry.result))
     }
 
@@ -200,6 +205,9 @@ public actor QueryClient {
             updatedAt: now
         )
         scheduleStaleTimer(for: entry, updatedAt: now)
+        if entry.subscriberCount == 0 {
+            scheduleGCTimer(for: entry)
+        }
         deliver(entry.deliveries(for: entry.result))
     }
 
@@ -268,6 +276,7 @@ public actor QueryClient {
     public func clear() async {
         for entry in cache.values {
             entry.cancelStaleTimer()
+            entry.cancelGCTimer()
         }
         cache.removeAll()
     }
@@ -335,6 +344,9 @@ public actor QueryClient {
         if result.isSuccess, let updatedAt = result.updatedAt {
             scheduleStaleTimer(for: entry, updatedAt: updatedAt)
         }
+        if entry.subscriberCount == 0 {
+            scheduleGCTimer(for: entry)
+        }
 
         return entry.deliveries(for: result)
     }
@@ -354,6 +366,31 @@ public actor QueryClient {
         }
 
         deliver(entry.markStale())
+    }
+
+    private func scheduleGCTimer<Value: Sendable>(for entry: QueryCacheEntry<Value>) {
+        entry.cancelGCTimer()
+        let gcTime = defaultCacheOptions.gcTime
+        guard gcTime > 0 else {
+            removeEntry(key: entry.typedKey)
+            return
+        }
+        let key = entry.typedKey
+        entry.gcTimer = Task { [weak self] in
+            let nanoseconds = UInt64(gcTime * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled else { return }
+            await self?.removeEntry(key: key)
+        }
+    }
+
+    private func removeEntry<Value: Sendable>(key: QueryKey<Value>) {
+        let id = QueryCacheID(key)
+        guard let entry = cache[id], entry.subscriberCount == 0 else { return }
+        entry.cancelInFlight()
+        entry.cancelStaleTimer()
+        entry.cancelGCTimer()
+        cache[id] = nil
     }
 
     private func scheduleStaleTimer<Value: Sendable>(
@@ -388,6 +425,9 @@ public actor QueryClient {
         }
 
         entry.subscribers[id] = nil
+        if entry.subscriberCount == 0 {
+            scheduleGCTimer(for: entry)
+        }
     }
 
     private nonisolated func deliver<S: Sequence>(_ deliveries: S) where S.Element == QueryDelivery {

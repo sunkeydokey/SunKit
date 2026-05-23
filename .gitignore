@@ -75,6 +75,7 @@ AGENTS.md
 .claude/*.local.*
 .codex/
 .agent/
+docs/
 
 # xcode-build-server files
 buildServer.json

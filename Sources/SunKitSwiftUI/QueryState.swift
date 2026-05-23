@@ -1,3 +1,9 @@
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+import Network
 import Observation
 import SunKit
 
@@ -23,7 +29,22 @@ public final class QueryState<Value: Sendable> {
 
     @ObservationIgnored private var subscription: QuerySubscription?
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var lastSuccessfulData: Value?
+    @ObservationIgnored private var intervalTask: Task<Void, Never>?
+    @ObservationIgnored private var sceneActiveObserver: NSObjectProtocol?
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
+    @ObservationIgnored private var pathMonitorQueue: DispatchQueue?
     @ObservationIgnored private let fetch: @Sendable () async throws -> Value
+
+    static var sceneActiveNotificationName: Notification.Name {
+        #if canImport(UIKit)
+        return UIApplication.didBecomeActiveNotification
+        #elseif canImport(AppKit)
+        return NSApplication.didBecomeActiveNotification
+        #else
+        return Notification.Name("_QueryStateSceneActive")
+        #endif
+    }
 
     /// Creates observable query state from an async throwing fetcher.
     ///
@@ -57,9 +78,11 @@ public final class QueryState<Value: Sendable> {
 
     /// Starts observing the query with the provided client.
     ///
-    /// This method subscribes to the query key and starts an initial fetch when
-    /// `options.enabled` is `true` and `options.refetchOnSubscribe` is not
-    /// `.never`.
+    /// Subscribes to the query key and, when `options.enabled` is `true` and
+    /// `options.refetchOnSubscribe` is not `.never`, performs an initial fetch.
+    /// After the initial fetch, any enabled periodic, scene-active, or
+    /// network-reconnect refetch triggers are armed and remain active until
+    /// ``stop()`` is called.
     public func start(using client: QueryClient) {
         stop()
 
@@ -73,7 +96,7 @@ public final class QueryState<Value: Sendable> {
                 deliverOn: .main
             ) { [weak state = self] result in
                 Task { @MainActor in
-                    state?.result = result
+                    state?.apply(result)
                 }
             }
 
@@ -86,8 +109,12 @@ public final class QueryState<Value: Sendable> {
 
             if options.enabled, options.refetchOnSubscribe != .never {
                 let result = await client.fetchQuery(makeQuery())
-                self.result = result
+                self.apply(result)
             }
+
+            self.startIntervalTimer(using: client)
+            self.startSceneActiveObserver(using: client)
+            self.startNetworkMonitor(using: client)
         }
     }
 
@@ -96,12 +123,19 @@ public final class QueryState<Value: Sendable> {
         task?.cancel()
         task = Task {
             let result = await client.fetchQuery(makeQuery())
-            self.result = result
+            self.apply(result)
         }
     }
 
-    /// Stops observing query publications.
+    /// Stops observing query publications and cancels all active refetch triggers.
+    ///
+    /// Cancels the periodic interval timer, the scene-active observer, the
+    /// network-reconnect monitor, and the current subscription. Safe to call
+    /// multiple times.
     public func stop() {
+        stopIntervalTimer()
+        stopSceneActiveObserver()
+        stopNetworkMonitor()
         task?.cancel()
         task = nil
 
@@ -112,6 +146,125 @@ public final class QueryState<Value: Sendable> {
         self.subscription = nil
         Task {
             await subscription.cancel()
+        }
+    }
+
+    private func startSceneActiveObserver(using client: QueryClient) {
+        guard options.refetchOnSceneActive != .never else { return }
+        sceneActiveObserver = NotificationCenter.default.addObserver(
+            forName: Self.sceneActiveNotificationName,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.handleSceneActive(using: client)
+            }
+        }
+    }
+
+    @MainActor
+    private func handleSceneActive(using client: QueryClient) {
+        switch options.refetchOnSceneActive {
+        case .never:
+            return
+        case .always:
+            refetch(using: client)
+        case .ifStale:
+            if result?.isStale ?? true {
+                refetch(using: client)
+            }
+        }
+    }
+
+    private func stopSceneActiveObserver() {
+        if let observer = sceneActiveObserver {
+            NotificationCenter.default.removeObserver(observer)
+            sceneActiveObserver = nil
+        }
+    }
+
+    private func startNetworkMonitor(using client: QueryClient) {
+        guard options.refetchOnNetworkReconnect != .never else { return }
+        let monitor = NWPathMonitor()
+        let queue = DispatchQueue(label: "sunkit.network-monitor", qos: .utility)
+        // Both vars are accessed exclusively on the monitor's serial queue.
+        nonisolated(unsafe) var isFirstUpdate = true
+        nonisolated(unsafe) var previouslySatisfied = false
+        monitor.pathUpdateHandler = { [weak self] path in
+            let nowSatisfied = path.status == .satisfied
+            if isFirstUpdate {
+                isFirstUpdate = false
+                previouslySatisfied = nowSatisfied
+                return
+            }
+            guard nowSatisfied, !previouslySatisfied else {
+                previouslySatisfied = nowSatisfied
+                return
+            }
+            previouslySatisfied = true
+            Task { @MainActor [weak self] in
+                self?.handleNetworkReconnect(using: client)
+            }
+        }
+        monitor.start(queue: queue)
+        pathMonitor = monitor
+        pathMonitorQueue = queue
+    }
+
+    @MainActor
+    private func handleNetworkReconnect(using client: QueryClient) {
+        switch options.refetchOnNetworkReconnect {
+        case .never:
+            return
+        case .always:
+            refetch(using: client)
+        case .ifStale:
+            if result?.isStale ?? true {
+                refetch(using: client)
+            }
+        }
+    }
+
+    private func stopNetworkMonitor() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
+        pathMonitorQueue = nil
+    }
+
+    private func startIntervalTimer(using client: QueryClient) {
+        guard let interval = options.refetchInterval, interval > 0 else { return }
+        intervalTask = Task { [weak self] in
+            while !Task.isCancelled {
+                let nanoseconds = UInt64(interval * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: nanoseconds)
+                guard !Task.isCancelled else { return }
+                self?.refetch(using: client)
+            }
+        }
+    }
+
+    private func stopIntervalTimer() {
+        intervalTask?.cancel()
+        intervalTask = nil
+    }
+
+    private func apply(_ incoming: QueryResult<Value>) {
+        if options.placeholderData == .keepPreviousData,
+           incoming.isPending,
+           let previous = lastSuccessfulData {
+            result = QueryResult(
+                status: .pending(previous: previous),
+                isFetching: incoming.isFetching,
+                isStale: incoming.isStale,
+                isPlaceholderData: true,
+                updatedAt: incoming.updatedAt
+            )
+        } else {
+            if incoming.isSuccess, let data = incoming.data {
+                lastSuccessfulData = data
+            }
+            result = incoming
         }
     }
 
