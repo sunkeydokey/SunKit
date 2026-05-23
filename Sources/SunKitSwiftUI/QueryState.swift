@@ -19,7 +19,7 @@ public final class QueryState<Value: Sendable> {
     public private(set) var result: QueryResult<Value>?
 
     /// The cache identity observed by this state object.
-    public let key: QueryKey<Value>
+    public private(set) var key: QueryKey<Value>
 
     /// Query execution options, or `nil` to use the executing client's defaults.
     public let queryOptions: QueryOptions?
@@ -34,7 +34,8 @@ public final class QueryState<Value: Sendable> {
     @ObservationIgnored private var sceneActiveObserver: NSObjectProtocol?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private var pathMonitorQueue: DispatchQueue?
-    @ObservationIgnored private let fetch: @Sendable () async throws -> Value
+    @ObservationIgnored private var isObserving = false
+    @ObservationIgnored private var fetch: @Sendable () async throws -> Value
 
     static var sceneActiveNotificationName: Notification.Name {
         #if canImport(UIKit)
@@ -85,6 +86,50 @@ public final class QueryState<Value: Sendable> {
     /// ``stop()`` is called.
     public func start(using client: QueryClient) {
         stop()
+        startCurrentKey(using: client)
+    }
+
+    /// Updates the observed key and fetcher, then observes the updated query.
+    ///
+    /// When the new key matches the current key, the state keeps the existing
+    /// subscription and only replaces the fetcher used by future refetches.
+    /// When the key changes, the state cancels its current subscription and
+    /// refetch triggers, clears key-scoped placeholder data, and subscribes to
+    /// the new key.
+    ///
+    /// `QueryState` compares the newly built key with the current key. It does
+    /// not observe mutation inside reference-typed key parts; key parts should
+    /// be stable value snapshots.
+    ///
+    /// - Parameters:
+    ///   - key: The cache identity parts to observe and fetch.
+    ///   - client: The query client used for subscription and fetches.
+    ///   - fetch: The async operation that loads the updated query value.
+    public func update(
+        key: [AnyQueryKeyPart],
+        using client: QueryClient,
+        fetch: @escaping @Sendable () async throws -> Value
+    ) {
+        let nextKey = QueryKey<Value>(key)
+        self.fetch = fetch
+
+        guard nextKey != self.key else {
+            if !isObserving {
+                startCurrentKey(using: client)
+            }
+            return
+        }
+
+        stop()
+        self.key = nextKey
+        result = nil
+        lastSuccessfulData = nil
+        startCurrentKey(using: client)
+    }
+
+    private func startCurrentKey(using client: QueryClient) {
+        let observedKey = key
+        isObserving = true
 
         task = Task { [weak self] in
             guard let self else {
@@ -92,11 +137,11 @@ public final class QueryState<Value: Sendable> {
             }
 
             let subscription = await client.subscribe(
-                to: key,
+                to: observedKey,
                 deliverOn: .main
             ) { [weak state = self] result in
                 Task { @MainActor in
-                    state?.apply(result)
+                    state?.apply(result, for: observedKey)
                 }
             }
 
@@ -108,8 +153,8 @@ public final class QueryState<Value: Sendable> {
             self.subscription = subscription
 
             if options.enabled, options.refetchOnSubscribe != .never {
-                let result = await client.fetchQuery(makeQuery())
-                self.apply(result)
+                let result = await client.fetchQuery(makeQuery(for: observedKey))
+                self.apply(result, for: observedKey)
             }
 
             self.startIntervalTimer(using: client)
@@ -121,9 +166,10 @@ public final class QueryState<Value: Sendable> {
     /// Fetches the query again with the provided client.
     public func refetch(using client: QueryClient) {
         task?.cancel()
+        let observedKey = key
         task = Task {
-            let result = await client.fetchQuery(makeQuery())
-            self.apply(result)
+            let result = await client.fetchQuery(makeQuery(for: observedKey))
+            self.apply(result, for: observedKey)
         }
     }
 
@@ -136,6 +182,7 @@ public final class QueryState<Value: Sendable> {
         stopIntervalTimer()
         stopSceneActiveObserver()
         stopNetworkMonitor()
+        isObserving = false
         task?.cancel()
         task = nil
 
@@ -239,7 +286,10 @@ public final class QueryState<Value: Sendable> {
                 let nanoseconds = UInt64(interval * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: nanoseconds)
                 guard !Task.isCancelled else { return }
-                self?.refetch(using: client)
+                await MainActor.run {
+                    guard self?.result?.isFetching != true else { return }
+                    self?.refetch(using: client)
+                }
             }
         }
     }
@@ -249,7 +299,11 @@ public final class QueryState<Value: Sendable> {
         intervalTask = nil
     }
 
-    private func apply(_ incoming: QueryResult<Value>) {
+    private func apply(_ incoming: QueryResult<Value>, for observedKey: QueryKey<Value>) {
+        guard key == observedKey else {
+            return
+        }
+
         if options.placeholderData == .keepPreviousData,
            incoming.isPending,
            let previous = lastSuccessfulData {
@@ -268,7 +322,7 @@ public final class QueryState<Value: Sendable> {
         }
     }
 
-    private func makeQuery() -> Query<Value> {
-        Query(key: key, options: queryOptions, fetch: fetch)
+    private func makeQuery(for observedKey: QueryKey<Value>) -> Query<Value> {
+        Query(key: observedKey, options: queryOptions, fetch: fetch)
     }
 }

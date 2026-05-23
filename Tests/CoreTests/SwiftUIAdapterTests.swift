@@ -16,6 +16,19 @@ private actor SwiftUIFetchCounter {
     }
 }
 
+private actor PageFetchRecorder {
+    private var calls: [String] = []
+
+    func record(input: String, page: Int) -> String {
+        calls.append("\(input)-\(page)")
+        return "\(input)-\(page)"
+    }
+
+    func values() -> [String] {
+        calls
+    }
+}
+
 private func eventuallyOnMainActor(_ condition: @escaping @MainActor () -> Bool) async -> Bool {
     for _ in 0..<50 {
         if await MainActor.run(body: condition) {
@@ -26,6 +39,14 @@ private func eventuallyOnMainActor(_ condition: @escaping @MainActor () -> Bool)
     }
 
     return false
+}
+
+private var immediateFetchOptions: QueryObserverOptions {
+    QueryObserverOptions(
+        refetchOnSubscribe: .always,
+        refetchOnSceneActive: .never,
+        refetchOnNetworkReconnect: .never
+    )
 }
 
 @Test
@@ -158,6 +179,30 @@ func refetchIntervalTriggersPeriodicRefetch() async {
 
 @Test
 @MainActor
+func refetchIntervalDoesNotPreventSlowFetchCompletion() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let state = QueryState(
+        key: ["swiftui", "slow-interval"],
+        options: QueryObserverOptions(
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never,
+            refetchInterval: 0.05
+        )
+    ) {
+        let value = await counter.next()
+        try? await Task.sleep(nanoseconds: 180_000_000)
+        return value
+    }
+
+    state.start(using: client)
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+    state.stop()
+}
+
+@Test
+@MainActor
 func refetchOnSceneActiveAlwaysRefetchesOnNotification() async {
     let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
     let counter = SwiftUIFetchCounter()
@@ -218,5 +263,287 @@ func queryStateReflectsStaleTimePublication() async {
 
     #expect(await eventuallyOnMainActor { state.result?.isStale == false })
     #expect(await eventuallyOnMainActor { state.result?.isStale == true })
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateKeyUpdateSwitchesSubscriptionToNewKey() async {
+    let client = QueryClient()
+    let oldKey = QueryKey<String>("swiftui", "dynamic", "old")
+    let newKey = QueryKey<String>("swiftui", "dynamic", "new")
+    await client.setQueryData(oldKey, "old")
+    await client.setQueryData(newKey, "new")
+
+    let state = QueryState(
+        key: ["swiftui", "dynamic", "old"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        "unused-old"
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == "old" })
+
+    state.update(key: ["swiftui", "dynamic", "new"], using: client) {
+        "unused-new"
+    }
+
+    #expect(await eventuallyOnMainActor { state.result?.data == "new" })
+
+    await client.setQueryData(oldKey, "old-update")
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    #expect(state.result?.data == "new")
+
+    await client.setQueryData(newKey, "new-update")
+    #expect(await eventuallyOnMainActor { state.result?.data == "new-update" })
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateKeyUpdateDoesNotUsePreviousKeyDataAsPlaceholder() async {
+    let client = QueryClient()
+    let state = QueryState(
+        key: ["swiftui", "placeholder-scope", "old"],
+        options: QueryObserverOptions(
+            placeholderData: .keepPreviousData,
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        "old"
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == "old" })
+
+    state.update(key: ["swiftui", "placeholder-scope", "new"], using: client) {
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        return "new"
+    }
+
+    #expect(await eventuallyOnMainActor { state.result?.isPending == true })
+    #expect(state.result?.data == nil)
+    #expect(state.result?.isPlaceholderData == false)
+
+    #expect(await eventuallyOnMainActor { state.result?.data == "new" })
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateSameKeyUpdateKeepsSubscriptionAndUsesNewFetcher() async {
+    let client = QueryClient()
+    let key = QueryKey<String>("swiftui", "same-key-update")
+    await client.setQueryData(key, "cached")
+
+    let state = QueryState(
+        key: ["swiftui", "same-key-update"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        "old-fetch"
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == "cached" })
+
+    state.update(key: ["swiftui", "same-key-update"], using: client) {
+        "new-fetch"
+    }
+    state.refetch(using: client)
+
+    #expect(await eventuallyOnMainActor { state.result?.data == "new-fetch" })
+
+    await client.setQueryData(key, "subscription-still-active")
+    #expect(await eventuallyOnMainActor { state.result?.data == "subscription-still-active" })
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateLateOldKeyResponseDoesNotOverwriteCurrentKey() async {
+    let client = QueryClient()
+    let state = QueryState(
+        key: ["swiftui", "late-response", "slow"],
+        options: immediateFetchOptions
+    ) {
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        return "slow"
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.isPending == true })
+
+    state.update(key: ["swiftui", "late-response", "fast"], using: client) {
+        "fast"
+    }
+
+    #expect(await eventuallyOnMainActor { state.result?.data == "fast" })
+    try? await Task.sleep(nanoseconds: 250_000_000)
+    #expect(state.result?.data == "fast")
+    state.stop()
+}
+
+@Test
+@MainActor
+func paginatedQueryStateFetchesWhenPageChanges() async {
+    let client = QueryClient()
+    let recorder = PageFetchRecorder()
+    let state = PaginatedQueryState<String, Int, String>(
+        input: "ios",
+        initialPage: 1,
+        options: immediateFetchOptions,
+        key: { input, page in ["search", AnyQueryKeyPart(input), AnyQueryKeyPart(page)] },
+        nextPage: { $0 + 1 },
+        previousPage: { $0 - 1 },
+        canMoveToPreviousPage: { $0 > 1 }
+    ) { input, page in
+        await recorder.record(input: input, page: page)
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == "ios-1" })
+
+    state.nextPage(using: client)
+
+    #expect(await eventuallyOnMainActor { state.page == 2 && state.result?.data == "ios-2" })
+    #expect(await recorder.values() == ["ios-1", "ios-2"])
+    state.stop()
+}
+
+@Test
+@MainActor
+func paginatedQueryStateInputChangeResetsToInitialPage() async {
+    let client = QueryClient()
+    let recorder = PageFetchRecorder()
+    let state = PaginatedQueryState<String, Int, String>(
+        input: "ios",
+        initialPage: 1,
+        options: immediateFetchOptions,
+        key: { input, page in ["search-reset", AnyQueryKeyPart(input), AnyQueryKeyPart(page)] },
+        nextPage: { $0 + 1 },
+        previousPage: { $0 - 1 },
+        canMoveToPreviousPage: { $0 > 1 }
+    ) { input, page in
+        await recorder.record(input: input, page: page)
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == "ios-1" })
+    state.nextPage(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == "ios-2" })
+
+    state.setInput("swift", using: client)
+
+    #expect(await eventuallyOnMainActor { state.input == "swift" && state.page == 1 && state.result?.data == "swift-1" })
+    #expect(await recorder.values() == ["ios-1", "ios-2", "swift-1"])
+    state.stop()
+}
+
+@Test
+@MainActor
+func paginatedQueryStateRevisitingPageUsesClientCache() async {
+    let client = QueryClient()
+    let recorder = PageFetchRecorder()
+    let cachedKey = QueryKey<String>("search-cache", "ios", 1)
+    await client.setQueryData(cachedKey, "cached-ios-1")
+
+    let state = PaginatedQueryState<String, Int, String>(
+        input: "ios",
+        initialPage: 1,
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        ),
+        key: { input, page in ["search-cache", AnyQueryKeyPart(input), AnyQueryKeyPart(page)] },
+        nextPage: { $0 + 1 },
+        previousPage: { $0 - 1 },
+        canMoveToPreviousPage: { $0 > 1 }
+    ) { input, page in
+        await recorder.record(input: input, page: page)
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == "cached-ios-1" })
+
+    state.nextPage(using: client)
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    #expect(state.page == 2)
+
+    state.previousPage(using: client)
+
+    #expect(await eventuallyOnMainActor { state.page == 1 && state.result?.data == "cached-ios-1" })
+    #expect(await recorder.values().isEmpty)
+    state.stop()
+}
+
+@Test
+@MainActor
+func paginatedQueryStatePreviousPageGuardPreventsInvalidPage() async {
+    let client = QueryClient()
+    let recorder = PageFetchRecorder()
+    let state = PaginatedQueryState<String, Int, String>(
+        input: "ios",
+        initialPage: 1,
+        options: immediateFetchOptions,
+        key: { input, page in ["search-previous-guard", AnyQueryKeyPart(input), AnyQueryKeyPart(page)] },
+        nextPage: { $0 + 1 },
+        previousPage: { $0 - 1 },
+        canMoveToPreviousPage: { $0 > 1 }
+    ) { input, page in
+        await recorder.record(input: input, page: page)
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == "ios-1" })
+
+    state.previousPage(using: client)
+
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    #expect(state.page == 1)
+    #expect(state.result?.data == "ios-1")
+    #expect(await recorder.values() == ["ios-1"])
+    state.stop()
+}
+
+@Test
+@MainActor
+func paginatedQueryStateLatePreviousPageResponseDoesNotOverwriteCurrentPage() async {
+    let client = QueryClient()
+    let state = PaginatedQueryState<String, Int, String>(
+        input: "ios",
+        initialPage: 1,
+        options: immediateFetchOptions,
+        key: { input, page in ["search-late", AnyQueryKeyPart(input), AnyQueryKeyPart(page)] },
+        nextPage: { $0 + 1 },
+        previousPage: { $0 - 1 },
+        canMoveToPreviousPage: { $0 > 1 }
+    ) { input, page in
+        if page == 1 {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return "\(input)-\(page)"
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.isPending == true })
+
+    state.nextPage(using: client)
+
+    #expect(await eventuallyOnMainActor { state.page == 2 && state.result?.data == "ios-2" })
+    try? await Task.sleep(nanoseconds: 250_000_000)
+    #expect(state.page == 2)
+    #expect(state.result?.data == "ios-2")
     state.stop()
 }

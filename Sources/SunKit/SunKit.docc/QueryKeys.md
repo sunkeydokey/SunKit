@@ -16,6 +16,11 @@ let project = QueryKey<Project>("project", id)
 Key part equality includes the concrete Swift type. This means `"1"` and `1`
 are different key parts.
 
+Key parts should be stable value snapshots, such as strings, numbers, enum raw
+values, or identifiers. SunKit compares newly built keys with existing keys; it
+does not observe mutation inside reference-typed values that were already placed
+in a key.
+
 When an API accepts type-erased key parts, array literals can be used:
 
 ```swift
