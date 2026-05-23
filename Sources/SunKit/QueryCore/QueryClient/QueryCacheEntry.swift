@@ -19,6 +19,7 @@ internal protocol AnyQueryCacheEntry: Sendable {
     func makeBackgroundRefetch(_ client: QueryClient) -> Task<Void, Never>?
     func cancelInFlight()
     func cancelStaleTimer()
+    func cancelGCTimer()
 }
 
 internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unchecked Sendable {
@@ -35,6 +36,7 @@ internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unch
     var requestID: UInt64
     var inFlight: Task<QueryResult<Value>, Never>?
     var staleTimer: Task<Void, Never>?
+    var gcTimer: Task<Void, Never>?
     var lastQuery: Query<Value>?
     var subscribers: [UUID: Subscriber]
 
@@ -50,6 +52,7 @@ internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unch
         self.requestID = 0
         self.inFlight = nil
         self.staleTimer = nil
+        self.gcTimer = nil
         self.lastQuery = nil
         self.subscribers = [:]
     }
@@ -113,6 +116,11 @@ internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unch
     func cancelStaleTimer() {
         staleTimer?.cancel()
         staleTimer = nil
+    }
+
+    func cancelGCTimer() {
+        gcTimer?.cancel()
+        gcTimer = nil
     }
 
     func deliveries(for result: QueryResult<Value>) -> [QueryDelivery] {
