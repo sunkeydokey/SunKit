@@ -239,7 +239,7 @@ public final class QueryState<Value: Sendable> {
                 let nanoseconds = UInt64(interval * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: nanoseconds)
                 guard !Task.isCancelled else { return }
-                await self?.refetch(using: client)
+                self?.refetch(using: client)
             }
         }
     }
