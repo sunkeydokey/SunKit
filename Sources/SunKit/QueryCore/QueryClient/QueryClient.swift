@@ -12,6 +12,7 @@ public actor QueryClient {
     public nonisolated let defaultCacheOptions: QueryCacheOptions
 
     private var cache: [QueryCacheID: any AnyQueryCacheEntry]
+    private var nextRequestID: UInt64 = 0
 
     /// Creates a query client with isolated cache state.
     ///
@@ -44,7 +45,7 @@ public actor QueryClient {
         let previousData = entry.result.data
         let previousFailureCount = entry.result.failureCount
         let previousUpdatedAt = entry.updatedAt
-        entry.requestID += 1
+        entry.requestID = issueRequestID()
         let requestID = entry.requestID
         entry.lastQuery = query
 
@@ -141,6 +142,7 @@ public actor QueryClient {
             .map(\.key)
 
         for id in ids {
+            cache[id]?.cancelInFlight()
             cache[id]?.cancelStaleTimer()
             cache[id] = nil
         }
@@ -155,6 +157,8 @@ public actor QueryClient {
     public func setQueryData<Value: Sendable>(_ key: QueryKey<Value>, _ value: Value) async {
         let entry = entry(for: key)
         let now = Date()
+        entry.requestID = issueRequestID()
+        entry.inFlight = nil
         entry.staleTimer?.cancel()
         entry.staleTimer = nil
         entry.updatedAt = now
@@ -184,6 +188,8 @@ public actor QueryClient {
 
         let now = Date()
         let updatedData = update(currentData)
+        entry.requestID = issueRequestID()
+        entry.inFlight = nil
         entry.staleTimer?.cancel()
         entry.staleTimer = nil
         entry.updatedAt = now
@@ -369,6 +375,11 @@ public actor QueryClient {
 
             await self?.markStaleIfCurrent(key: key, updatedAt: updatedAt)
         }
+    }
+
+    private func issueRequestID() -> UInt64 {
+        nextRequestID += 1
+        return nextRequestID
     }
 
     private func cancelSubscription<Value: Sendable>(_ id: UUID, key: QueryKey<Value>) {
