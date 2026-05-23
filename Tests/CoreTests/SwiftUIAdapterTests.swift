@@ -134,3 +134,32 @@ func keepPreviousDataExposesPreviousValueWhileFetching() async {
     #expect(state.result?.isPlaceholderData == false)
     state.stop()
 }
+
+@Test
+@MainActor
+func refetchIntervalTriggersPeriodicRefetch() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let state = QueryState(
+        key: ["swiftui", "interval"],
+        options: QueryObserverOptions(
+            refetchInterval: 0.05
+        )
+    ) {
+        await counter.next()
+    }
+
+    state.start(using: client)
+
+    // After ~150ms we expect at least 2 fetches (initial + ≥1 interval refetch)
+    try? await Task.sleep(nanoseconds: 150_000_000)
+
+    let fetchCount = await counter.value()
+    #expect(fetchCount >= 2)
+    state.stop()
+
+    // After stop, no more fetches
+    let countAfterStop = await counter.value()
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    #expect(await counter.value() == countAfterStop)
+}

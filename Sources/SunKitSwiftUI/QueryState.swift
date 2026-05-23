@@ -24,6 +24,7 @@ public final class QueryState<Value: Sendable> {
     @ObservationIgnored private var subscription: QuerySubscription?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var lastSuccessfulData: Value?
+    @ObservationIgnored private var intervalTask: Task<Void, Never>?
     @ObservationIgnored private let fetch: @Sendable () async throws -> Value
 
     /// Creates observable query state from an async throwing fetcher.
@@ -89,6 +90,8 @@ public final class QueryState<Value: Sendable> {
                 let result = await client.fetchQuery(makeQuery())
                 self.apply(result)
             }
+
+            self.startIntervalTimer(using: client)
         }
     }
 
@@ -103,6 +106,7 @@ public final class QueryState<Value: Sendable> {
 
     /// Stops observing query publications.
     public func stop() {
+        stopIntervalTimer()
         task?.cancel()
         task = nil
 
@@ -114,6 +118,23 @@ public final class QueryState<Value: Sendable> {
         Task {
             await subscription.cancel()
         }
+    }
+
+    private func startIntervalTimer(using client: QueryClient) {
+        guard let interval = options.refetchInterval, interval > 0 else { return }
+        intervalTask = Task { [weak self] in
+            while !Task.isCancelled {
+                let nanoseconds = UInt64(interval * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: nanoseconds)
+                guard !Task.isCancelled else { return }
+                await self?.refetch(using: client)
+            }
+        }
+    }
+
+    private func stopIntervalTimer() {
+        intervalTask?.cancel()
+        intervalTask = nil
     }
 
     private func apply(_ incoming: QueryResult<Value>) {
