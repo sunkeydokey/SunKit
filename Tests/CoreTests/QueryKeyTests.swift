@@ -37,3 +37,10 @@ import Testing
 
     #expect(key.rawValue == AnyQueryKey("projects", 1))
 }
+
+@Test func queryKeyCanBeBuiltFromLiteralErasedParts() {
+    let parts: [AnyQueryKeyPart] = ["projects", 1, true, 1.5]
+    let key = QueryKey<String>(parts)
+
+    #expect(key.rawValue == AnyQueryKey("projects", 1, true, 1.5))
+}

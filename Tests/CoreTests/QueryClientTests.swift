@@ -369,6 +369,29 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     #expect(stale.isStale)
 }
 
+@Test func successfulQueryPublishesStaleWhenStaleTimeElapses() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0.02))
+    let key = QueryKey<Int>("value")
+    let query = Query(key: key) { 42 }
+    let (stream, continuation) = AsyncStream.makeStream(of: QueryResult<Int>.self)
+    let subscription = await client.subscribe(to: key, receiveCurrentValue: false) { result in
+        continuation.yield(result)
+    }
+    var iterator = stream.makeAsyncIterator()
+
+    _ = await client.fetchQuery(query)
+    _ = await iterator.next()
+    let success = await iterator.next()
+    let stale = await iterator.next()
+
+    #expect(success?.data == 42)
+    #expect(success?.isStale == false)
+    #expect(stale?.data == 42)
+    #expect(stale?.isStale == true)
+    await subscription.cancel()
+    continuation.finish()
+}
+
 @Test func subscriberReceivesCurrentValueWhenRequested() async {
     let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
     let key = QueryKey<Int>("value")

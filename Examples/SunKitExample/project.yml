@@ -1,0 +1,31 @@
+name: SunKitExample
+options:
+  minimumXcodeGenVersion: 2.42.0
+packages:
+  SunKit:
+    path: ../..
+targets:
+  SunKitExample:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - SunKitExample
+    dependencies:
+      - package: SunKit
+        product: SunKit
+      - package: SunKit
+        product: SunKitSwiftUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sunkit.example
+        PRODUCT_NAME: SunKitExample
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: ""
+        DEVELOPMENT_TEAM: ""
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
