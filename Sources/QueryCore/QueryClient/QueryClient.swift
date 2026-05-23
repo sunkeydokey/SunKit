@@ -190,6 +190,67 @@ public actor QueryClient {
         deliver(entry.deliveries(for: entry.result))
     }
 
+    /// Executes a mutation and runs its lifecycle callbacks.
+    ///
+    /// Mutations do not invalidate queries automatically. Use callbacks such as
+    /// `MutationOptions.onSuccess` or call cache APIs after this method returns
+    /// to update or invalidate related query data explicitly.
+    ///
+    /// - Parameters:
+    ///   - mutation: The mutation declaration to execute.
+    ///   - input: The input passed to the mutation operation.
+    /// - Returns: The mutation output.
+    public func mutate<Input: Sendable, Output: Sendable>(
+        _ mutation: Mutation<Input, Output>,
+        input: Input
+    ) async throws -> Output {
+        do {
+            let output = try await Self.run(mutation: mutation, input: input)
+            await mutation.options.onSuccess?(output, input, self)
+            await mutation.options.onSettled?(.success(output), input, self)
+            return output
+        } catch {
+            await mutation.options.onFailure?(error, input, self)
+            await mutation.options.onSettled?(.failure(error), input, self)
+            throw error
+        }
+    }
+
+    /// Executes a mutation and delivers its completion result.
+    ///
+    /// Mutations do not invalidate queries automatically. The completion is
+    /// delivered on `queue` when one is provided; otherwise it is delivered from
+    /// an unstructured task.
+    ///
+    /// - Parameters:
+    ///   - mutation: The mutation declaration to execute.
+    ///   - input: The input passed to the mutation operation.
+    ///   - queue: The dispatch queue used for completion delivery.
+    ///   - completion: A closure that receives the mutation result.
+    public nonisolated func mutate<Input: Sendable, Output: Sendable>(
+        _ mutation: Mutation<Input, Output>,
+        input: Input,
+        deliverOn queue: DispatchQueue? = nil,
+        _ completion: @escaping @Sendable (Result<Output, Error>) -> Void
+    ) {
+        Task {
+            let result: Result<Output, Error>
+            do {
+                result = .success(try await self.mutate(mutation, input: input))
+            } catch {
+                result = .failure(error)
+            }
+
+            if let queue {
+                queue.async {
+                    completion(result)
+                }
+            } else {
+                completion(result)
+            }
+        }
+    }
+
     /// Removes all cached queries.
     public func clear() async {
         cache.removeAll()
@@ -323,6 +384,33 @@ public actor QueryClient {
 
                 attempt += 1
                 await sleep(for: options.retryDelay, attempt: attempt)
+            }
+        }
+    }
+
+    private nonisolated static func run<Input: Sendable, Output: Sendable>(
+        mutation: Mutation<Input, Output>,
+        input: Input
+    ) async throws -> Output {
+        let maximumRetries: Int
+        switch mutation.options.retry {
+        case .never:
+            maximumRetries = 0
+        case let .count(count):
+            maximumRetries = max(0, count)
+        }
+
+        var attempt = 0
+        while true {
+            do {
+                return try await mutation.run(input)
+            } catch {
+                guard attempt < maximumRetries else {
+                    throw error
+                }
+
+                attempt += 1
+                await sleep(for: mutation.options.retryDelay, attempt: attempt)
             }
         }
     }
