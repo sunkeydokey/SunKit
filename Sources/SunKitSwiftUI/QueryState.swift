@@ -23,6 +23,7 @@ public final class QueryState<Value: Sendable> {
 
     @ObservationIgnored private var subscription: QuerySubscription?
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var lastSuccessfulData: Value?
     @ObservationIgnored private let fetch: @Sendable () async throws -> Value
 
     /// Creates observable query state from an async throwing fetcher.
@@ -73,7 +74,7 @@ public final class QueryState<Value: Sendable> {
                 deliverOn: .main
             ) { [weak state = self] result in
                 Task { @MainActor in
-                    state?.result = result
+                    state?.apply(result)
                 }
             }
 
@@ -86,7 +87,7 @@ public final class QueryState<Value: Sendable> {
 
             if options.enabled, options.refetchOnSubscribe != .never {
                 let result = await client.fetchQuery(makeQuery())
-                self.result = result
+                self.apply(result)
             }
         }
     }
@@ -96,7 +97,7 @@ public final class QueryState<Value: Sendable> {
         task?.cancel()
         task = Task {
             let result = await client.fetchQuery(makeQuery())
-            self.result = result
+            self.apply(result)
         }
     }
 
@@ -112,6 +113,25 @@ public final class QueryState<Value: Sendable> {
         self.subscription = nil
         Task {
             await subscription.cancel()
+        }
+    }
+
+    private func apply(_ incoming: QueryResult<Value>) {
+        if options.placeholderData == .keepPreviousData,
+           incoming.isPending,
+           let previous = lastSuccessfulData {
+            result = QueryResult(
+                status: .pending(previous: previous),
+                isFetching: incoming.isFetching,
+                isStale: incoming.isStale,
+                isPlaceholderData: true,
+                updatedAt: incoming.updatedAt
+            )
+        } else {
+            if incoming.isSuccess, let data = incoming.data {
+                lastSuccessfulData = data
+            }
+            result = incoming
         }
     }
 

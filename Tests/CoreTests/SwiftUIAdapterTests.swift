@@ -102,3 +102,35 @@ func queryStateReflectsStaleTimePublication() async {
     #expect(await eventuallyOnMainActor { state.result?.isStale == true })
     state.stop()
 }
+
+@Test
+@MainActor
+func keepPreviousDataExposesPreviousValueWhileFetching() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("swiftui", "keep-previous")
+    await client.setQueryData(key, 1)
+
+    let state = QueryState(
+        key: ["swiftui", "keep-previous"],
+        options: QueryObserverOptions(
+            placeholderData: .keepPreviousData,
+            refetchOnSubscribe: .never
+        )
+    ) {
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        return 2
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+
+    state.refetch(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.isPlaceholderData == true })
+
+    #expect(state.result?.data == 1)
+    #expect(state.result?.isFetching == true)
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 2 })
+    #expect(state.result?.isPlaceholderData == false)
+    state.stop()
+}
