@@ -37,7 +37,11 @@ func queryStateReceivesCurrentCachedValue() async {
 
     let state = QueryState(
         key: ["swiftui", "cached"],
-        options: QueryObserverOptions(refetchOnSubscribe: .never)
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
     ) {
         "fresh"
     }
@@ -90,21 +94,6 @@ func queryStateManualRefetchFetchesQuery() async {
 
 @Test
 @MainActor
-func queryStateReflectsStaleTimePublication() async {
-    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0.02))
-    let state = QueryState(key: ["swiftui", "stale-time"]) {
-        1
-    }
-
-    state.start(using: client)
-
-    #expect(await eventuallyOnMainActor { state.result?.isStale == false })
-    #expect(await eventuallyOnMainActor { state.result?.isStale == true })
-    state.stop()
-}
-
-@Test
-@MainActor
 func keepPreviousDataExposesPreviousValueWhileFetching() async {
     let client = QueryClient()
     let key = QueryKey<Int>("swiftui", "keep-previous")
@@ -122,14 +111,17 @@ func keepPreviousDataExposesPreviousValueWhileFetching() async {
     }
 
     state.start(using: client)
+    // Wait for cached value to arrive
     #expect(await eventuallyOnMainActor { state.result?.data == 1 })
 
+    // Trigger a refetch — state should show previous data as placeholder
     state.refetch(using: client)
     #expect(await eventuallyOnMainActor { state.result?.isPlaceholderData == true })
 
     #expect(state.result?.data == 1)
     #expect(state.result?.isFetching == true)
 
+    // Wait for fetch to complete
     #expect(await eventuallyOnMainActor { state.result?.data == 2 })
     #expect(state.result?.isPlaceholderData == false)
     state.stop()
@@ -182,8 +174,49 @@ func refetchOnSceneActiveAlwaysRefetchesOnNotification() async {
     state.start(using: client)
     #expect(await eventuallyOnMainActor { state.result?.data == 1 })
 
+    // Simulate scene becoming active
     NotificationCenter.default.post(name: QueryState<Int>.sceneActiveNotificationName, object: nil)
 
     #expect(await eventuallyOnMainActor { state.result?.data == 2 })
+    state.stop()
+}
+
+@Test
+@MainActor
+func networkReconnectNeverPolicyDoesNotRefetch() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let state = QueryState(
+        key: ["swiftui", "network-never"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        await counter.next()
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+
+    // Even if path monitor fires, no extra fetches should occur with .never
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    #expect(await counter.value() == 1)
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateReflectsStaleTimePublication() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0.02))
+    let state = QueryState(key: ["swiftui", "stale-time"]) {
+        1
+    }
+
+    state.start(using: client)
+
+    #expect(await eventuallyOnMainActor { state.result?.isStale == false })
+    #expect(await eventuallyOnMainActor { state.result?.isStale == true })
     state.stop()
 }

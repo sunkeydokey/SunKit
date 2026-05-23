@@ -3,6 +3,7 @@ import UIKit
 #elseif canImport(AppKit)
 import AppKit
 #endif
+import Network
 import Observation
 import SunKit
 
@@ -31,6 +32,8 @@ public final class QueryState<Value: Sendable> {
     @ObservationIgnored private var lastSuccessfulData: Value?
     @ObservationIgnored private var intervalTask: Task<Void, Never>?
     @ObservationIgnored private var sceneActiveObserver: NSObjectProtocol?
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
+    @ObservationIgnored private var pathMonitorQueue: DispatchQueue?
     @ObservationIgnored private let fetch: @Sendable () async throws -> Value
 
     static var sceneActiveNotificationName: Notification.Name {
@@ -109,6 +112,7 @@ public final class QueryState<Value: Sendable> {
 
             self.startIntervalTimer(using: client)
             self.startSceneActiveObserver(using: client)
+            self.startNetworkMonitor(using: client)
         }
     }
 
@@ -125,6 +129,7 @@ public final class QueryState<Value: Sendable> {
     public func stop() {
         stopIntervalTimer()
         stopSceneActiveObserver()
+        stopNetworkMonitor()
         task?.cancel()
         task = nil
 
@@ -171,6 +176,54 @@ public final class QueryState<Value: Sendable> {
             NotificationCenter.default.removeObserver(observer)
             sceneActiveObserver = nil
         }
+    }
+
+    private func startNetworkMonitor(using client: QueryClient) {
+        guard options.refetchOnNetworkReconnect != .never else { return }
+        let monitor = NWPathMonitor()
+        let queue = DispatchQueue(label: "sunkit.network-monitor", qos: .utility)
+        // Both vars are accessed exclusively on the monitor's serial queue.
+        nonisolated(unsafe) var isFirstUpdate = true
+        nonisolated(unsafe) var previouslySatisfied = false
+        monitor.pathUpdateHandler = { [weak self] path in
+            let nowSatisfied = path.status == .satisfied
+            if isFirstUpdate {
+                isFirstUpdate = false
+                previouslySatisfied = nowSatisfied
+                return
+            }
+            guard nowSatisfied, !previouslySatisfied else {
+                previouslySatisfied = nowSatisfied
+                return
+            }
+            previouslySatisfied = true
+            Task { @MainActor [weak self] in
+                self?.handleNetworkReconnect(using: client)
+            }
+        }
+        monitor.start(queue: queue)
+        pathMonitor = monitor
+        pathMonitorQueue = queue
+    }
+
+    @MainActor
+    private func handleNetworkReconnect(using client: QueryClient) {
+        switch options.refetchOnNetworkReconnect {
+        case .never:
+            return
+        case .always:
+            refetch(using: client)
+        case .ifStale:
+            if result?.isStale ?? true {
+                refetch(using: client)
+            }
+        }
+    }
+
+    private func stopNetworkMonitor() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
+        pathMonitorQueue = nil
     }
 
     private func startIntervalTimer(using client: QueryClient) {
