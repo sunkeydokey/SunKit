@@ -9,6 +9,12 @@ creates these values through query APIs such as fetching, subscriptions, and
 future adapters. Package users read the public projection properties instead of
 constructing query results directly.
 
+`QueryStatus` is also Core-owned. You can read the `status` value from a
+`QueryResult`, but status values are not an enum surface for package users to
+construct or switch over. Branch UI and cache logic with `QueryResult`
+projections such as `isPending`, `isFetching`, `isSuccess`, `isError`, `data`,
+`error`, and `failureCount`.
+
 Use `data` to read the latest available value. When an initial fetch fails,
 `data` is `nil`. When a refetch fails after data already exists, `data` keeps
 the stale value and `error` describes the latest failure.
