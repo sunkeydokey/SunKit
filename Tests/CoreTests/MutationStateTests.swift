@@ -1,0 +1,103 @@
+import Foundation
+import Testing
+@testable import SunKit
+@testable import SunKitSwiftUI
+
+private enum MutationStateTestError: Error, Equatable {
+    case failed
+}
+
+private func eventuallyOnMainActor(_ condition: @escaping @MainActor () -> Bool) async -> Bool {
+    for _ in 0..<50 {
+        if await MainActor.run(body: condition) {
+            return true
+        }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+    }
+    return false
+}
+
+@Test
+@MainActor
+func mutationStateInitialResultIsIdle() {
+    let state = MutationState(mutation: Mutation<Int, String> { input in
+        "result-\(input)"
+    })
+
+    #expect(state.result.isIdle)
+    #expect(state.result.data == nil)
+    #expect(state.result.error == nil)
+    #expect(!state.result.isPending)
+    #expect(!state.result.isSuccess)
+    #expect(!state.result.isError)
+}
+
+@Test
+@MainActor
+func mutationStateTransitionsToPendingThenSuccess() async {
+    let client = QueryClient()
+    let state = MutationState(mutation: Mutation<Int, String> { input in
+        "result-\(input)"
+    })
+
+    state.mutate(1, using: client)
+    #expect(state.result.isPending)
+
+    #expect(await eventuallyOnMainActor { state.result.isSuccess })
+    #expect(state.result.data == "result-1")
+    #expect(!state.result.isPending)
+    #expect(!state.result.isError)
+}
+
+@Test
+@MainActor
+func mutationStateTransitionsToPendingThenFailure() async {
+    let client = QueryClient()
+    let state = MutationState(mutation: Mutation<Int, String> { _ in
+        throw MutationStateTestError.failed
+    })
+
+    state.mutate(1, using: client)
+    #expect(state.result.isPending)
+
+    #expect(await eventuallyOnMainActor { state.result.isError })
+    #expect(state.result.error is MutationStateTestError)
+    #expect(state.result.failureCount == 1)
+    #expect(state.result.data == nil)
+    #expect(!state.result.isPending)
+    #expect(!state.result.isSuccess)
+}
+
+@Test
+@MainActor
+func mutationStateResetClearsResult() async {
+    let client = QueryClient()
+    let state = MutationState(mutation: Mutation<Int, String> { input in
+        "result-\(input)"
+    })
+
+    state.mutate(1, using: client)
+    #expect(await eventuallyOnMainActor { state.result.isSuccess })
+
+    state.reset()
+    #expect(state.result.isIdle)
+    #expect(state.result.data == nil)
+}
+
+@Test
+@MainActor
+func mutationStateSecondCallCancelsPreviousAndReturnsNewResult() async {
+    let client = QueryClient()
+    let state = MutationState(mutation: Mutation<Int, String> { input in
+        if input == 1 {
+            try await Task.sleep(nanoseconds: 500_000_000)
+        }
+        return "result-\(input)"
+    })
+
+    state.mutate(1, using: client)
+    state.mutate(2, using: client)
+
+    #expect(await eventuallyOnMainActor { state.result.isSuccess })
+    #expect(state.result.data == "result-2")
+}
