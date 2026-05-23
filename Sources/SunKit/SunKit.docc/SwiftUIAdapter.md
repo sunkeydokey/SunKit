@@ -46,6 +46,59 @@ fetch when
 Because Core publishes natural stale-time transitions, `QueryState.result`
 updates when cached data becomes stale.
 
+## Dynamic Keys
+
+Use `update(key:using:fetch:)` when the same SwiftUI state object should observe
+a different cache key, such as after a search term, filter, or page value
+changes:
+
+```swift
+.onChange(of: searchText) { _, searchText in
+    projects.update(key: ["projects", AnyQueryKeyPart(searchText)], using: client) {
+        try await api.searchProjects(searchText)
+    }
+}
+```
+
+`QueryState` compares the newly built key with its current key. If the key is
+unchanged, it keeps the current subscription and uses the new fetcher for later
+refetches. If the key changed, it cancels the current subscription and refetch
+triggers, clears key-scoped placeholder data, subscribes to the new key, and
+then follows the observer options for fetching.
+
+`keepPreviousData` is scoped to the current key. A refetch for the same key can
+show previous data as placeholder data while the fetch is pending. Changing to a
+different key does not show data from the old key; cached data for the new key
+is still delivered immediately when available.
+
+## Paginated Queries
+
+Use `PaginatedQueryState` for numbered or page-param based views where input or
+page changes should rebuild the query key while preserving one state object:
+
+```swift
+@State private var projects = PaginatedQueryState(
+    input: "",
+    initialPage: 1,
+    key: { searchText, page in
+        ["projects", AnyQueryKeyPart(searchText), AnyQueryKeyPart(page)]
+    },
+    nextPage: { $0 + 1 },
+    previousPage: { $0 - 1 },
+    canMoveToPreviousPage: { $0 > 1 }
+) { searchText, page in
+    try await api.searchProjects(searchText, page: page)
+}
+```
+
+Call `setInput(_:using:)` when a search or filter changes; the page resets to
+the initial page. Call `setPage(_:using:)`, `nextPage(using:)`, or
+`previousPage(using:)` for page navigation. Returning to a previous page uses
+the `QueryClient` cache for that key. Use `canMoveToPreviousPage` to enforce a
+lower bound before applying the `previousPage` closure. Appending multiple pages
+into one result is handled by the separate infinite-query API, not by
+`PaginatedQueryState`.
+
 ## Mutations
 
 Store `MutationState` with SwiftUI `@State`, then call `mutate(_:using:)` from
