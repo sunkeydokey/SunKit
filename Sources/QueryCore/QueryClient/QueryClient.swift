@@ -164,6 +164,32 @@ public actor QueryClient {
         deliver(entry.deliveries(for: entry.result))
     }
 
+    /// Updates cached data for a typed key when data is already present.
+    ///
+    /// The updater receives and returns non-optional values. If the key has no
+    /// cached data, this method does nothing and does not call `update`.
+    /// Invalidation remains explicit through `invalidate(key:)` and
+    /// `invalidateQueries(_:exact:)`.
+    public func updateQueryData<Value: Sendable>(
+        _ key: QueryKey<Value>,
+        _ update: @Sendable (Value) -> Value
+    ) async {
+        guard let entry = existingEntry(for: key), let currentData = entry.result.data else {
+            return
+        }
+
+        let now = Date()
+        let updatedData = update(currentData)
+        entry.updatedAt = now
+        entry.isInvalidated = false
+        entry.result = QueryResult(
+            status: .success(updatedData),
+            isStale: entry.isStale(now: now, cacheOptions: defaultCacheOptions),
+            updatedAt: now
+        )
+        deliver(entry.deliveries(for: entry.result))
+    }
+
     /// Removes all cached queries.
     public func clear() async {
         cache.removeAll()

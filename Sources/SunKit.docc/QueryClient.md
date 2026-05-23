@@ -37,4 +37,19 @@ await client.setQueryData(key, project)
 let cached = await client.getQueryData(key)
 ```
 
+Use `updateQueryData` to transform data that is already cached:
+
+```swift
+await client.updateQueryData(key) { project in
+    var updated = project
+    updated.name = "Updated name"
+    return updated
+}
+```
+
+If a key has no cached data, `updateQueryData` is a no-op and the updater is
+not called. The updater accepts and returns non-optional data; invalidation is
+only performed through `invalidate(key:)` and
+`invalidateQueries(_:exact:)`.
+
 `clear()` removes all stored query state for that client.

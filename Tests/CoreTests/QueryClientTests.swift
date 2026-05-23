@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import SunKit
 
@@ -15,6 +16,24 @@ private actor FetchCounter {
 
     func value() -> Int {
         count
+    }
+}
+
+private final class SyncCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func next() -> Int {
+        lock.withLock {
+            count += 1
+            return count
+        }
+    }
+
+    func value() -> Int {
+        lock.withLock {
+            count
+        }
     }
 }
 
@@ -62,6 +81,84 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
 
     #expect(await client.getQueryData(intKey) == 42)
     #expect(await client.getQueryData(stringKey) == "forty-two")
+}
+
+@Test func updateQueryDataTransformsExistingValue() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("value")
+    await client.setQueryData(key, 41)
+
+    await client.updateQueryData(key) { current in
+        current + 1
+    }
+
+    #expect(await client.getQueryData(key) == 42)
+}
+
+@Test func updateQueryDataWithoutExistingDataIsNoOp() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("value")
+    let updates = SyncCounter()
+
+    await client.updateQueryData(key) { current in
+        _ = updates.next()
+        return current + 1
+    }
+
+    #expect(updates.value() == 0)
+    #expect(await client.getQueryData(key) == nil)
+}
+
+@Test func updateQueryDataDoesNotCollideAcrossValueTypes() async {
+    let client = QueryClient()
+    let intKey = QueryKey<Int>("value")
+    let stringKey = QueryKey<String>("value")
+    await client.setQueryData(intKey, 41)
+    await client.setQueryData(stringKey, "forty")
+
+    await client.updateQueryData(intKey) { current in
+        current + 1
+    }
+
+    #expect(await client.getQueryData(intKey) == 42)
+    #expect(await client.getQueryData(stringKey) == "forty")
+}
+
+@Test func updateQueryDataPublishesUpdatedResult() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("value")
+    await client.setQueryData(key, 41)
+    let (stream, continuation) = AsyncStream.makeStream(of: QueryResult<Int>.self)
+    let subscription = await client.subscribe(to: key, receiveCurrentValue: false) { result in
+        continuation.yield(result)
+    }
+    var iterator = stream.makeAsyncIterator()
+
+    await client.updateQueryData(key) { current in
+        current + 1
+    }
+    let result = await iterator.next()
+
+    #expect(result?.data == 42)
+    #expect(result?.isSuccess == true)
+    await subscription.cancel()
+    continuation.finish()
+}
+
+@Test func updateQueryDataClearsInvalidationAndRecomputesStaleState() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let key = QueryKey<Int>("value")
+    await client.setQueryData(key, 41)
+    await client.invalidate(key: key)
+
+    await client.updateQueryData(key) { current in
+        current + 1
+    }
+    let result = await currentResult(for: key, client: client)
+
+    #expect(result?.data == 42)
+    #expect(result?.isSuccess == true)
+    #expect(result?.isStale == false)
 }
 
 @Test func clearRemovesData() async {
