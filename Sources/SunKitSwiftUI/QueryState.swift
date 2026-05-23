@@ -1,3 +1,8 @@
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 import Observation
 import SunKit
 
@@ -25,7 +30,18 @@ public final class QueryState<Value: Sendable> {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var lastSuccessfulData: Value?
     @ObservationIgnored private var intervalTask: Task<Void, Never>?
+    @ObservationIgnored private var sceneActiveObserver: NSObjectProtocol?
     @ObservationIgnored private let fetch: @Sendable () async throws -> Value
+
+    static var sceneActiveNotificationName: Notification.Name {
+        #if canImport(UIKit)
+        return UIApplication.didBecomeActiveNotification
+        #elseif canImport(AppKit)
+        return NSApplication.didBecomeActiveNotification
+        #else
+        return Notification.Name("_QueryStateSceneActive")
+        #endif
+    }
 
     /// Creates observable query state from an async throwing fetcher.
     ///
@@ -92,6 +108,7 @@ public final class QueryState<Value: Sendable> {
             }
 
             self.startIntervalTimer(using: client)
+            self.startSceneActiveObserver(using: client)
         }
     }
 
@@ -107,6 +124,7 @@ public final class QueryState<Value: Sendable> {
     /// Stops observing query publications.
     public func stop() {
         stopIntervalTimer()
+        stopSceneActiveObserver()
         task?.cancel()
         task = nil
 
@@ -117,6 +135,41 @@ public final class QueryState<Value: Sendable> {
         self.subscription = nil
         Task {
             await subscription.cancel()
+        }
+    }
+
+    private func startSceneActiveObserver(using client: QueryClient) {
+        guard options.refetchOnSceneActive != .never else { return }
+        sceneActiveObserver = NotificationCenter.default.addObserver(
+            forName: Self.sceneActiveNotificationName,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.handleSceneActive(using: client)
+            }
+        }
+    }
+
+    @MainActor
+    private func handleSceneActive(using client: QueryClient) {
+        switch options.refetchOnSceneActive {
+        case .never:
+            return
+        case .always:
+            refetch(using: client)
+        case .ifStale:
+            if result?.isStale ?? true {
+                refetch(using: client)
+            }
+        }
+    }
+
+    private func stopSceneActiveObserver() {
+        if let observer = sceneActiveObserver {
+            NotificationCenter.default.removeObserver(observer)
+            sceneActiveObserver = nil
         }
     }
 

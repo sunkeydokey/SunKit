@@ -163,3 +163,27 @@ func refetchIntervalTriggersPeriodicRefetch() async {
     try? await Task.sleep(nanoseconds: 100_000_000)
     #expect(await counter.value() == countAfterStop)
 }
+
+@Test
+@MainActor
+func refetchOnSceneActiveAlwaysRefetchesOnNotification() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let counter = SwiftUIFetchCounter()
+    let state = QueryState(
+        key: ["swiftui", "scene-active"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .always
+        )
+    ) {
+        await counter.next()
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+
+    NotificationCenter.default.post(name: QueryState<Int>.sceneActiveNotificationName, object: nil)
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 2 })
+    state.stop()
+}
