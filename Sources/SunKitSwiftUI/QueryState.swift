@@ -78,9 +78,11 @@ public final class QueryState<Value: Sendable> {
 
     /// Starts observing the query with the provided client.
     ///
-    /// This method subscribes to the query key and starts an initial fetch when
-    /// `options.enabled` is `true` and `options.refetchOnSubscribe` is not
-    /// `.never`.
+    /// Subscribes to the query key and, when `options.enabled` is `true` and
+    /// `options.refetchOnSubscribe` is not `.never`, performs an initial fetch.
+    /// After the initial fetch, any enabled periodic, scene-active, or
+    /// network-reconnect refetch triggers are armed and remain active until
+    /// ``stop()`` is called.
     public func start(using client: QueryClient) {
         stop()
 
@@ -125,7 +127,11 @@ public final class QueryState<Value: Sendable> {
         }
     }
 
-    /// Stops observing query publications.
+    /// Stops observing query publications and cancels all active refetch triggers.
+    ///
+    /// Cancels the periodic interval timer, the scene-active observer, the
+    /// network-reconnect monitor, and the current subscription. Safe to call
+    /// multiple times.
     public func stop() {
         stopIntervalTimer()
         stopSceneActiveObserver()

@@ -12,7 +12,12 @@ public struct QueryCacheOptions: Sendable, Equatable {
     public var staleTime: TimeInterval
 
     /// The number of seconds inactive query data remains in cache before
-    /// garbage collection may remove it.
+    /// garbage collection removes it.
+    ///
+    /// The timer starts when the last subscriber unsubscribes. If a new
+    /// subscriber arrives before the timer fires, the timer is cancelled and
+    /// the entry remains cached. A value of `0` removes the entry immediately
+    /// after the last subscriber leaves.
     public var gcTime: TimeInterval
 
     /// Creates query cache lifecycle options.
