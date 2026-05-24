@@ -663,3 +663,50 @@ func queryStateDeinitCleansUpAllResources() async {
     // If deinit did not clean up, the weak ref may still be retained by a Task/Observer
     #expect(weakState == nil)
 }
+
+@Test
+@MainActor
+func subscriptionCancelDoesNotAbortInFlightFetch() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+
+    // Two states subscribe to the same key — the fetch is shared (in-flight dedup)
+    let stateA = QueryState(
+        key: ["cancellation", "inflight"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        return await counter.next()
+    }
+
+    let stateB = QueryState(
+        key: ["cancellation", "inflight"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        await counter.next()
+    }
+
+    stateA.start(using: client)
+    stateB.start(using: client)
+
+    // Wait until fetch starts (stateA should be pending)
+    #expect(await eventuallyOnMainActor { stateA.result?.isFetching == true })
+
+    // Cancel stateA's subscription — in-flight must continue for stateB
+    stateA.stop()
+
+    // stateB must still receive the result
+    #expect(await eventuallyOnMainActor { stateB.result?.data == 1 })
+
+    // Fetch ran exactly once (shared in-flight dedup)
+    #expect(await counter.value() == 1)
+    stateB.stop()
+}
