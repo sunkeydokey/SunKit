@@ -7,16 +7,28 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		21271577C6E334BBB83DA1F1 /* InfiniteQueryExampleScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55341A711BDCB636C6C203FB /* InfiniteQueryExampleScreen.swift */; };
+		251350E8BD1102A77EB32FA1 /* MutationExampleScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4642AF569E7798C9F359C0 /* MutationExampleScreen.swift */; };
 		2D713D3A90F8027D2D594469 /* SunKitSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = B946C2801AFA044094527D0F /* SunKitSwiftUI */; };
+		51CA7DA79FFB2C1F44761BA4 /* PaginatedQueryExampleScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD0F6CA28AC39DB9669F0815 /* PaginatedQueryExampleScreen.swift */; };
+		522B31E5D3FE628775A18FC9 /* GitHubAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB7725F62E64F57CAB57C20 /* GitHubAPI.swift */; };
 		5A8332C4DB255F319690C41E /* SunKit in Frameworks */ = {isa = PBXBuildFile; productRef = 839B6107A0C06342A090A156 /* SunKit */; };
+		604FCD483331047395D8E2F4 /* QueryExampleScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C942F14D8A52D96FB992DFD /* QueryExampleScreen.swift */; };
 		700C1CB3FD78E9457861F75E /* SunKitExampleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C4C85E470BDD0C09FBD4F8 /* SunKitExampleApp.swift */; };
 		B39A5056D06CB63A248CC450 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45A2AE4E00FA40DBA6D473A2 /* ContentView.swift */; };
+		D91F27C8149506312A641529 /* ExampleRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = D04741D2A1BBFD469E2E70FF /* ExampleRows.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0C942F14D8A52D96FB992DFD /* QueryExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryExampleScreen.swift; sourceTree = "<group>"; };
+		2BB7725F62E64F57CAB57C20 /* GitHubAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubAPI.swift; sourceTree = "<group>"; };
 		45A2AE4E00FA40DBA6D473A2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		45C4C85E470BDD0C09FBD4F8 /* SunKitExampleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunKitExampleApp.swift; sourceTree = "<group>"; };
+		55341A711BDCB636C6C203FB /* InfiniteQueryExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InfiniteQueryExampleScreen.swift; sourceTree = "<group>"; };
 		6A7F06FC3304693826FE09AA /* SunKitExample.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SunKitExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AD0F6CA28AC39DB9669F0815 /* PaginatedQueryExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaginatedQueryExampleScreen.swift; sourceTree = "<group>"; };
+		CE4642AF569E7798C9F359C0 /* MutationExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationExampleScreen.swift; sourceTree = "<group>"; };
+		D04741D2A1BBFD469E2E70FF /* ExampleRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExampleRows.swift; sourceTree = "<group>"; };
 		E157ADEC7CE1CDEB86330801 /* SunKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SunKit; path = ../..; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -54,6 +66,12 @@
 			isa = PBXGroup;
 			children = (
 				45A2AE4E00FA40DBA6D473A2 /* ContentView.swift */,
+				D04741D2A1BBFD469E2E70FF /* ExampleRows.swift */,
+				2BB7725F62E64F57CAB57C20 /* GitHubAPI.swift */,
+				55341A711BDCB636C6C203FB /* InfiniteQueryExampleScreen.swift */,
+				CE4642AF569E7798C9F359C0 /* MutationExampleScreen.swift */,
+				AD0F6CA28AC39DB9669F0815 /* PaginatedQueryExampleScreen.swift */,
+				0C942F14D8A52D96FB992DFD /* QueryExampleScreen.swift */,
 				45C4C85E470BDD0C09FBD4F8 /* SunKitExampleApp.swift */,
 			);
 			path = SunKitExample;
@@ -133,6 +151,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				B39A5056D06CB63A248CC450 /* ContentView.swift in Sources */,
+				D91F27C8149506312A641529 /* ExampleRows.swift in Sources */,
+				522B31E5D3FE628775A18FC9 /* GitHubAPI.swift in Sources */,
+				21271577C6E334BBB83DA1F1 /* InfiniteQueryExampleScreen.swift in Sources */,
+				251350E8BD1102A77EB32FA1 /* MutationExampleScreen.swift in Sources */,
+				51CA7DA79FFB2C1F44761BA4 /* PaginatedQueryExampleScreen.swift in Sources */,
+				604FCD483331047395D8E2F4 /* QueryExampleScreen.swift in Sources */,
 				700C1CB3FD78E9457861F75E /* SunKitExampleApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

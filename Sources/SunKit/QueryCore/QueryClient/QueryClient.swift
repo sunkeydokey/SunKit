@@ -77,6 +77,58 @@ public actor QueryClient {
         return result
     }
 
+    /// Fetches the first page of an infinite query and stores accumulated data.
+    ///
+    /// The MVP infinite-query model refetches from `initialPageParam` and
+    /// replaces the accumulated pages with that single first page. It does not
+    /// refetch every previously loaded page.
+    @discardableResult
+    public func fetchInfiniteQuery<PageParam: Sendable, Page: Sendable>(
+        _ query: InfiniteQuery<PageParam, Page>
+    ) async -> QueryResult<InfiniteData<PageParam, Page>> {
+        await fetchQuery(Query(key: query.key, options: query.options) {
+            let page = try await query.fetchPage(query.initialPageParam)
+            return InfiniteData(
+                pages: [page],
+                pageParams: [query.initialPageParam]
+            )
+        })
+    }
+
+    /// Fetches and appends the next page for an infinite query when available.
+    ///
+    /// If the query has no cached pages yet, this method loads the initial page.
+    /// If `getNextPageParam` returns `nil`, no fetch is started and the current
+    /// cached result is returned. Concurrent calls for the same typed key join
+    /// the existing in-flight task through the normal query dedupe path.
+    @discardableResult
+    public func fetchNextPage<PageParam: Sendable, Page: Sendable>(
+        _ query: InfiniteQuery<PageParam, Page>
+    ) async -> QueryResult<InfiniteData<PageParam, Page>> {
+        let entry = entry(for: query.key)
+
+        if let inFlight = entry.inFlight {
+            return await inFlight.value
+        }
+
+        guard let current = entry.result.data,
+              let lastPage = current.pages.last else {
+            return await fetchInfiniteQuery(query)
+        }
+
+        guard let nextPageParam = query.getNextPageParam(lastPage, current.pages) else {
+            return entry.result
+        }
+
+        return await fetchQuery(Query(key: query.key, options: query.options) {
+            let nextPage = try await query.fetchPage(nextPageParam)
+            return InfiniteData(
+                pages: current.pages + [nextPage],
+                pageParams: current.pageParams + [nextPageParam]
+            )
+        })
+    }
+
     /// Returns cached fresh data for a query or fetches it when the cache is stale.
     ///
     /// This method throws when fetching fails and no successful value is available.
