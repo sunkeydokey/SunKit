@@ -544,6 +544,18 @@ private enum QueryClientError: Error {
 }
 
 /// A handle for cancelling a Core query subscription.
+///
+/// Cancellation removes this subscriber from the query key's listener list.
+/// It does **not** abort any in-flight fetch — fetches are shared across all
+/// subscribers for the same key and outlive individual subscriptions.
+///
+/// `cancel()` is `async` because removing the subscriber requires hopping to
+/// the `QueryClient` actor.
+///
+/// ## Completion-based fetchers
+/// The cooperative cancellation policy for completion-based `Query` and
+/// `Mutation` fetchers is not part of the v0.1 API surface and is deferred
+/// to a future release.
 public struct QuerySubscription: Sendable {
     private let cancelHandler: @Sendable () async -> Void
 

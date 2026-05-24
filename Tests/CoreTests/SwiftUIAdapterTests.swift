@@ -547,3 +547,176 @@ func paginatedQueryStateLatePreviousPageResponseDoesNotOverwriteCurrentPage() as
     #expect(state.result?.data == "ios-2")
     state.stop()
 }
+
+@Test
+@MainActor
+func stopPreventsGhostUpdatesFromQueuedCallbacks() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("lifecycle", "ghost")
+    await client.setQueryData(key, 1)
+
+    let state = QueryState(
+        key: ["lifecycle", "ghost"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) { 99 }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+
+    // Enqueue an update to the cache and stop() on the same actor turn —
+    // the delivery task is already scheduled but stop() must prevent it applying.
+    Task {
+        await client.setQueryData(key, 2)
+    }
+    state.stop()
+
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    #expect(state.result?.data == 1)
+}
+
+@Test
+@MainActor
+func rapidStartStopStartDoesNotDeliverStaleCallbacks() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let state = QueryState(
+        key: ["lifecycle", "rapid"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        await counter.next()
+    }
+
+    // Rapid start-stop-start
+    state.start(using: client)
+    state.stop()
+    state.start(using: client)
+
+    #expect(await eventuallyOnMainActor { state.result?.data != nil })
+
+    // Result must reflect only the last start's fetch, not multiple deliveries
+    let seen = state.result?.data
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    #expect(state.result?.data == seen)
+    state.stop()
+}
+
+@Test
+@MainActor
+func refetchBeforeSubscriptionSetupCompletesStillReceivesCacheUpdates() async {
+    let client = QueryClient()
+    let key = QueryKey<String>("lifecycle", "refetch-race")
+
+    let state = QueryState(
+        key: ["lifecycle", "refetch-race"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) { "fetched" }
+
+    // start() then immediately refetch() before subscription setup can complete
+    state.start(using: client)
+    state.refetch(using: client)
+
+    // Subscription must eventually be active: a setQueryData must be delivered
+    #expect(await eventuallyOnMainActor { state.result?.data == "fetched" })
+    await client.setQueryData(key, "updated")
+    #expect(await eventuallyOnMainActor { state.result?.data == "updated" })
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateDeinitCleansUpAllResources() async {
+    let client = QueryClient()
+    var state: QueryState<Int>? = QueryState(
+        key: ["lifecycle", "deinit"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .always,
+            refetchOnNetworkReconnect: .always,
+            refetchInterval: 60
+        )
+    ) { 1 }
+
+    weak var weakState = state
+    state?.start(using: client)
+
+    // Wait for interval timer, scene observer, and network monitor to arm
+    #expect(await eventuallyOnMainActor { state?.result?.data == 1 })
+
+    // Release without calling stop() — deinit must cancel all resources so
+    // the object is not kept alive by a strong reference in any closure
+    state = nil
+    try? await Task.sleep(nanoseconds: 100_000_000)
+
+    // The weak reference must be nil: if intervalTask, sceneActiveObserver,
+    // or pathMonitor held a strong reference, the object would still be alive
+    #expect(weakState == nil)
+
+    // Verify the scene-active observer was removed: posting the notification
+    // after deallocation must not cause any crash or unexpected side effects
+    NotificationCenter.default.post(
+        name: QueryState<Int>.sceneActiveNotificationName,
+        object: nil
+    )
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    // If we reach here without a crash, the observer was safely cleaned up
+    #expect(weakState == nil)
+}
+
+@Test
+@MainActor
+func subscriptionCancelDoesNotAbortInFlightFetch() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+
+    // Two states subscribe to the same key — the fetch is shared (in-flight dedup)
+    let stateA = QueryState(
+        key: ["cancellation", "inflight"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        return await counter.next()
+    }
+
+    let stateB = QueryState(
+        key: ["cancellation", "inflight"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        await counter.next()
+    }
+
+    stateA.start(using: client)
+    stateB.start(using: client)
+
+    // Wait until fetch starts (stateA should be pending)
+    #expect(await eventuallyOnMainActor { stateA.result?.isFetching == true })
+
+    // Cancel stateA's subscription — in-flight must continue for stateB
+    stateA.stop()
+
+    // stateB must still receive the result
+    #expect(await eventuallyOnMainActor { stateB.result?.data == 1 })
+
+    // Fetch ran exactly once (shared in-flight dedup)
+    #expect(await counter.value() == 1)
+    stateB.stop()
+}

@@ -27,14 +27,16 @@ public final class QueryState<Value: Sendable> {
     /// Observer options used when the state starts.
     public let options: QueryObserverOptions
 
-    @ObservationIgnored private var subscription: QuerySubscription?
-    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var subscription: QuerySubscription?
+    @ObservationIgnored nonisolated(unsafe) private var subscriptionTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var fetchTask: Task<Void, Never>?
     @ObservationIgnored private var lastSuccessfulData: Value?
-    @ObservationIgnored private var intervalTask: Task<Void, Never>?
-    @ObservationIgnored private var sceneActiveObserver: NSObjectProtocol?
-    @ObservationIgnored private var pathMonitor: NWPathMonitor?
-    @ObservationIgnored private var pathMonitorQueue: DispatchQueue?
+    @ObservationIgnored nonisolated(unsafe) private var intervalTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var sceneActiveObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var pathMonitor: NWPathMonitor?
+    @ObservationIgnored nonisolated(unsafe) private var pathMonitorQueue: DispatchQueue?
     @ObservationIgnored private var isObserving = false
+    @ObservationIgnored nonisolated(unsafe) private var generation: UInt64 = 0
     @ObservationIgnored private var fetch: @Sendable () async throws -> Value
 
     static var sceneActiveNotificationName: Notification.Name {
@@ -68,7 +70,11 @@ public final class QueryState<Value: Sendable> {
     }
 
     deinit {
-        task?.cancel()
+        stopIntervalTimer()
+        stopSceneActiveObserver()
+        stopNetworkMonitor()
+        subscriptionTask?.cancel()
+        fetchTask?.cancel()
 
         if let subscription {
             Task {
@@ -129,19 +135,19 @@ public final class QueryState<Value: Sendable> {
 
     private func startCurrentKey(using client: QueryClient) {
         let observedKey = key
+        let gen = generation
         isObserving = true
 
-        task = Task { [weak self] in
-            guard let self else {
-                return
-            }
+        subscriptionTask = Task { [weak self] in
+            guard let self else { return }
 
             let subscription = await client.subscribe(
                 to: observedKey,
                 deliverOn: .main
             ) { [weak state = self] result in
                 Task { @MainActor in
-                    state?.apply(result, for: observedKey)
+                    guard let state, state.generation == gen else { return }
+                    state.apply(result, for: observedKey)
                 }
             }
 
@@ -154,9 +160,11 @@ public final class QueryState<Value: Sendable> {
 
             if options.enabled, options.refetchOnSubscribe != .never {
                 let result = await client.fetchQuery(makeQuery(for: observedKey))
+                guard self.generation == gen else { return }
                 self.apply(result, for: observedKey)
             }
 
+            guard self.generation == gen else { return }
             self.startIntervalTimer(using: client)
             self.startSceneActiveObserver(using: client)
             self.startNetworkMonitor(using: client)
@@ -165,10 +173,12 @@ public final class QueryState<Value: Sendable> {
 
     /// Fetches the query again with the provided client.
     public func refetch(using client: QueryClient) {
-        task?.cancel()
+        fetchTask?.cancel()
         let observedKey = key
-        task = Task {
+        let gen = generation
+        fetchTask = Task {
             let result = await client.fetchQuery(makeQuery(for: observedKey))
+            guard self.generation == gen else { return }
             self.apply(result, for: observedKey)
         }
     }
@@ -179,12 +189,15 @@ public final class QueryState<Value: Sendable> {
     /// network-reconnect monitor, and the current subscription. Safe to call
     /// multiple times.
     public func stop() {
+        generation += 1
         stopIntervalTimer()
         stopSceneActiveObserver()
         stopNetworkMonitor()
         isObserving = false
-        task?.cancel()
-        task = nil
+        subscriptionTask?.cancel()
+        subscriptionTask = nil
+        fetchTask?.cancel()
+        fetchTask = nil
 
         guard let subscription else {
             return
@@ -198,6 +211,7 @@ public final class QueryState<Value: Sendable> {
 
     private func startSceneActiveObserver(using client: QueryClient) {
         guard options.refetchOnSceneActive != .never else { return }
+        let gen = generation
         sceneActiveObserver = NotificationCenter.default.addObserver(
             forName: Self.sceneActiveNotificationName,
             object: nil,
@@ -205,6 +219,7 @@ public final class QueryState<Value: Sendable> {
         ) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
+                guard self.generation == gen else { return }
                 self.handleSceneActive(using: client)
             }
         }
@@ -224,7 +239,7 @@ public final class QueryState<Value: Sendable> {
         }
     }
 
-    private func stopSceneActiveObserver() {
+    private nonisolated func stopSceneActiveObserver() {
         if let observer = sceneActiveObserver {
             NotificationCenter.default.removeObserver(observer)
             sceneActiveObserver = nil
@@ -233,9 +248,9 @@ public final class QueryState<Value: Sendable> {
 
     private func startNetworkMonitor(using client: QueryClient) {
         guard options.refetchOnNetworkReconnect != .never else { return }
+        let gen = generation
         let monitor = NWPathMonitor()
         let queue = DispatchQueue(label: "sunkit.network-monitor", qos: .utility)
-        // Both vars are accessed exclusively on the monitor's serial queue.
         nonisolated(unsafe) var isFirstUpdate = true
         nonisolated(unsafe) var previouslySatisfied = false
         monitor.pathUpdateHandler = { [weak self] path in
@@ -251,7 +266,8 @@ public final class QueryState<Value: Sendable> {
             }
             previouslySatisfied = true
             Task { @MainActor [weak self] in
-                self?.handleNetworkReconnect(using: client)
+                guard let self, self.generation == gen else { return }
+                self.handleNetworkReconnect(using: client)
             }
         }
         monitor.start(queue: queue)
@@ -273,7 +289,7 @@ public final class QueryState<Value: Sendable> {
         }
     }
 
-    private func stopNetworkMonitor() {
+    private nonisolated func stopNetworkMonitor() {
         pathMonitor?.cancel()
         pathMonitor = nil
         pathMonitorQueue = nil
@@ -281,20 +297,22 @@ public final class QueryState<Value: Sendable> {
 
     private func startIntervalTimer(using client: QueryClient) {
         guard let interval = options.refetchInterval, interval > 0 else { return }
+        let gen = generation
         intervalTask = Task { [weak self] in
             while !Task.isCancelled {
                 let nanoseconds = UInt64(interval * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: nanoseconds)
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    guard self?.result?.isFetching != true else { return }
-                    self?.refetch(using: client)
+                    guard let self, self.generation == gen else { return }
+                    guard self.result?.isFetching != true else { return }
+                    self.refetch(using: client)
                 }
             }
         }
     }
 
-    private func stopIntervalTimer() {
+    private nonisolated func stopIntervalTimer() {
         intervalTask?.cancel()
         intervalTask = nil
     }
