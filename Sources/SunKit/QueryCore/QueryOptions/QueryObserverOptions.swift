@@ -4,11 +4,8 @@ import Foundation
 ///
 /// `QueryObserverOptions` stay independent per subscriber. Core subscriptions
 /// only register listeners and deliver current values; UI adapters use these
-/// options to decide when to request fetches.
-public struct QueryObserverOptions: Sendable, Equatable {
-    /// The default query observer options.
-    public static let `default` = QueryObserverOptions()
-
+/// options to decide when to request fetches and how to project cached values.
+public struct QueryObserverOptions<RawValue: Sendable, SelectedValue: Sendable>: Sendable {
     /// A Boolean value indicating whether the observer may trigger fetches.
     public var enabled: Bool
 
@@ -27,6 +24,13 @@ public struct QueryObserverOptions: Sendable, Equatable {
     /// The interval, in seconds, for periodic refetches.
     public var refetchInterval: TimeInterval?
 
+    /// Transforms cached raw data into the value exposed by this observer.
+    ///
+    /// The transform is observer-local. It does not change cache identity,
+    /// in-flight deduplication, invalidation, or the raw value stored by
+    /// `QueryClient`.
+    public var select: @Sendable (RawValue) -> SelectedValue
+
     /// Creates query observer options.
     ///
     /// - Parameters:
@@ -36,13 +40,15 @@ public struct QueryObserverOptions: Sendable, Equatable {
     ///   - refetchOnSceneActive: Refetch policy when the app scene becomes active.
     ///   - refetchOnNetworkReconnect: Refetch policy when network connectivity returns.
     ///   - refetchInterval: Interval, in seconds, for periodic refetches.
+    ///   - select: Observer-local transform from raw cached data to exposed data.
     public init(
         enabled: Bool = true,
         placeholderData: PlaceholderData = .none,
         refetchOnSubscribe: RefetchTrigger = .ifStale,
         refetchOnSceneActive: RefetchTrigger = .ifStale,
         refetchOnNetworkReconnect: RefetchTrigger = .ifStale,
-        refetchInterval: TimeInterval? = nil
+        refetchInterval: TimeInterval? = nil,
+        select: @escaping @Sendable (RawValue) -> SelectedValue
     ) {
         self.enabled = enabled
         self.placeholderData = placeholderData
@@ -50,6 +56,36 @@ public struct QueryObserverOptions: Sendable, Equatable {
         self.refetchOnSceneActive = refetchOnSceneActive
         self.refetchOnNetworkReconnect = refetchOnNetworkReconnect
         self.refetchInterval = refetchInterval
+        self.select = select
+    }
+}
+
+public extension QueryObserverOptions where RawValue == SelectedValue {
+    /// The default query observer options.
+    static var `default`: QueryObserverOptions<RawValue, SelectedValue> {
+        QueryObserverOptions()
+    }
+
+    /// Creates identity query observer options.
+    ///
+    /// The observer exposes the same value type stored in the cache.
+    init(
+        enabled: Bool = true,
+        placeholderData: PlaceholderData = .none,
+        refetchOnSubscribe: RefetchTrigger = .ifStale,
+        refetchOnSceneActive: RefetchTrigger = .ifStale,
+        refetchOnNetworkReconnect: RefetchTrigger = .ifStale,
+        refetchInterval: TimeInterval? = nil
+    ) {
+        self.init(
+            enabled: enabled,
+            placeholderData: placeholderData,
+            refetchOnSubscribe: refetchOnSubscribe,
+            refetchOnSceneActive: refetchOnSceneActive,
+            refetchOnNetworkReconnect: refetchOnNetworkReconnect,
+            refetchInterval: refetchInterval,
+            select: { $0 }
+        )
     }
 }
 

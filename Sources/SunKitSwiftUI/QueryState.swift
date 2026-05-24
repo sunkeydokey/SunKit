@@ -11,33 +11,33 @@ import SunKit
 ///
 /// Store `QueryState` in SwiftUI with `@State`, then call `start(using:)` from
 /// the view lifecycle. The state subscribes to Core query publications for its
-/// key and exposes the latest `QueryResult`.
+/// key and exposes the latest selected `QueryResult`.
 @MainActor
 @Observable
-public final class QueryState<Value: Sendable> {
-    /// The latest query result delivered by Core, if any.
-    public private(set) var result: QueryResult<Value>?
+public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
+    /// The latest selected query result, if any.
+    public private(set) var result: QueryResult<SelectedValue>?
 
     /// The cache identity observed by this state object.
-    public private(set) var key: QueryKey<Value>
+    public private(set) var key: QueryKey<RawValue>
 
     /// Query execution options, or `nil` to use the executing client's defaults.
     public let queryOptions: QueryOptions?
 
     /// Observer options used when the state starts.
-    public let options: QueryObserverOptions
+    public let options: QueryObserverOptions<RawValue, SelectedValue>
 
     @ObservationIgnored nonisolated(unsafe) private var subscription: QuerySubscription?
     @ObservationIgnored nonisolated(unsafe) private var subscriptionTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var fetchTask: Task<Void, Never>?
-    @ObservationIgnored private var lastSuccessfulData: Value?
+    @ObservationIgnored private var lastSuccessfulData: SelectedValue?
     @ObservationIgnored nonisolated(unsafe) private var intervalTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var sceneActiveObserver: NSObjectProtocol?
     @ObservationIgnored nonisolated(unsafe) private var pathMonitor: NWPathMonitor?
     @ObservationIgnored nonisolated(unsafe) private var pathMonitorQueue: DispatchQueue?
     @ObservationIgnored private var isObserving = false
     @ObservationIgnored nonisolated(unsafe) private var generation: UInt64 = 0
-    @ObservationIgnored private var fetch: @Sendable () async throws -> Value
+    @ObservationIgnored private var fetch: @Sendable () async throws -> RawValue
 
     static var sceneActiveNotificationName: Notification.Name {
         #if canImport(UIKit)
@@ -49,7 +49,10 @@ public final class QueryState<Value: Sendable> {
         #endif
     }
 
-    /// Creates observable query state from an async throwing fetcher.
+    /// Creates observable query state from an async throwing raw-value fetcher.
+    ///
+    /// The raw fetched value is stored in `QueryClient`; `options.select`
+    /// transforms it into the selected value exposed by ``result``.
     ///
     /// - Parameters:
     ///   - key: The cache identity parts to subscribe to and fetch.
@@ -60,8 +63,8 @@ public final class QueryState<Value: Sendable> {
     public init(
         key: [AnyQueryKeyPart],
         queryOptions: QueryOptions? = nil,
-        options: QueryObserverOptions = .default,
-        fetch: @escaping @Sendable () async throws -> Value
+        options: QueryObserverOptions<RawValue, SelectedValue>,
+        fetch: @escaping @Sendable () async throws -> RawValue
     ) {
         self.key = QueryKey(key)
         self.queryOptions = queryOptions
@@ -114,9 +117,9 @@ public final class QueryState<Value: Sendable> {
     public func update(
         key: [AnyQueryKeyPart],
         using client: QueryClient,
-        fetch: @escaping @Sendable () async throws -> Value
+        fetch: @escaping @Sendable () async throws -> RawValue
     ) {
-        let nextKey = QueryKey<Value>(key)
+        let nextKey = QueryKey<RawValue>(key)
         self.fetch = fetch
 
         guard nextKey != self.key else {
@@ -304,40 +307,42 @@ public final class QueryState<Value: Sendable> {
         intervalTask = nil
     }
 
-    private func apply(_ incoming: QueryResult<Value>, for observedKey: QueryKey<Value>) {
+    private func apply(_ incoming: QueryResult<RawValue>, for observedKey: QueryKey<RawValue>) {
         guard key == observedKey else {
             return
         }
 
-        if let result, incoming.differsOnlyByStaleFlag(from: result) {
+        let selected = incoming.map(options.select)
+
+        if let result, selected.differsOnlyByStaleFlag(from: result) {
             return
         }
 
         if options.placeholderData == .keepPreviousData,
-           incoming.isPending,
+           selected.isPending,
            let previous = lastSuccessfulData {
             result = QueryResult(
                 status: .pending(previous: previous),
-                isFetching: incoming.isFetching,
-                isStale: incoming.isStale,
+                isFetching: selected.isFetching,
+                isStale: selected.isStale,
                 isPlaceholderData: true,
-                updatedAt: incoming.updatedAt
+                updatedAt: selected.updatedAt
             )
         } else {
-            if incoming.isSuccess, let data = incoming.data {
+            if selected.isSuccess, let data = selected.data {
                 lastSuccessfulData = data
             }
-            result = incoming
+            result = selected
         }
     }
 
-    private func makeQuery(for observedKey: QueryKey<Value>) -> Query<Value> {
+    private func makeQuery(for observedKey: QueryKey<RawValue>) -> Query<RawValue> {
         Query(key: observedKey, options: queryOptions, fetch: fetch)
     }
 
     private func shouldFetch(
         _ trigger: RefetchTrigger,
-        key: QueryKey<Value>,
+        key: QueryKey<RawValue>,
         using client: QueryClient
     ) async -> Bool {
         guard options.enabled else {
@@ -352,6 +357,23 @@ public final class QueryState<Value: Sendable> {
         case .ifStale:
             return await client.isQueryStale(key)
         }
+    }
+}
+
+public extension QueryState where RawValue == SelectedValue {
+    /// Creates observable query state that exposes the raw cached value.
+    ///
+    /// - Parameters:
+    ///   - key: The cache identity parts to subscribe to and fetch.
+    ///   - queryOptions: Execution options for fetches, or `nil` to use the
+    ///     executing client's defaults.
+    ///   - fetch: The async operation that loads the query value.
+    convenience init(
+        key: [AnyQueryKeyPart],
+        queryOptions: QueryOptions? = nil,
+        fetch: @escaping @Sendable () async throws -> RawValue
+    ) {
+        self.init(key: key, queryOptions: queryOptions, options: .default, fetch: fetch)
     }
 }
 

@@ -11,31 +11,27 @@ import SunKit
 ///
 /// Store `InfiniteQueryState` in SwiftUI with `@State`, then call
 /// ``start(using:)`` from the view lifecycle. The state subscribes to the
-/// accumulated infinite-query cache value and exposes page arrays for rendering
-/// infinite-scroll or "load more" interfaces.
+/// accumulated infinite-query cache value and exposes selected data for
+/// rendering infinite-scroll or "load more" interfaces.
 @MainActor
 @Observable
-public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
-    /// The latest accumulated query result delivered by Core, if any.
-    public private(set) var result: QueryResult<InfiniteData<PageParam, Page>>?
+public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, SelectedValue: Sendable> {
+    /// The latest selected accumulated query result, if any.
+    public private(set) var result: QueryResult<SelectedValue>?
 
     /// A Boolean value indicating whether `fetchNextPage(using:)` is running.
     public private(set) var isFetchingNextPage = false
 
-    /// The latest accumulated infinite data.
-    public var data: InfiniteData<PageParam, Page>? {
+    /// The latest selected infinite data.
+    public var data: SelectedValue? {
         result?.data
     }
 
     /// The fetched pages in append order.
-    public var pages: [Page] {
-        data?.pages ?? []
-    }
+    public private(set) var pages: [Page] = []
 
     /// The page parameters used to fetch `pages`.
-    public var pageParams: [PageParam] {
-        data?.pageParams ?? []
-    }
+    public private(set) var pageParams: [PageParam] = []
 
     /// The latest query error when the infinite query is in an error state.
     public var error: Error? {
@@ -44,11 +40,11 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
 
     /// A Boolean value indicating whether another next page is available.
     public var hasNextPage: Bool {
-        guard let data, let lastPage = data.pages.last else {
+        guard let lastPage = pages.last else {
             return false
         }
 
-        return query.getNextPageParam(lastPage, data.pages) != nil
+        return query.getNextPageParam(lastPage, pages) != nil
     }
 
     /// The cache identity observed by this state object.
@@ -57,14 +53,20 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
     }
 
     /// Observer options used when the state starts.
-    public let options: QueryObserverOptions
+    ///
+    /// The raw accumulated `InfiniteData` value is stored in `QueryClient`;
+    /// `options.select` transforms it into the selected value exposed by
+    /// ``result`` and ``data``.
+    public let options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>
 
     @ObservationIgnored private var query: InfiniteQuery<PageParam, Page>
+    @ObservationIgnored private var rawResult: QueryResult<InfiniteData<PageParam, Page>>?
     @ObservationIgnored nonisolated(unsafe) private var subscription: QuerySubscription?
     @ObservationIgnored nonisolated(unsafe) private var subscriptionTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var fetchTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var nextPageTask: Task<Void, Never>?
-    @ObservationIgnored private var lastSuccessfulData: InfiniteData<PageParam, Page>?
+    @ObservationIgnored private var lastSuccessfulData: SelectedValue?
+    @ObservationIgnored private var lastSuccessfulRawData: InfiniteData<PageParam, Page>?
     @ObservationIgnored nonisolated(unsafe) private var sceneActiveObserver: NSObjectProtocol?
     @ObservationIgnored nonisolated(unsafe) private var pathMonitor: NWPathMonitor?
     @ObservationIgnored nonisolated(unsafe) private var pathMonitorQueue: DispatchQueue?
@@ -88,7 +90,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
     ///   - options: Observer options that control initial fetch behavior.
     public init(
         query: InfiniteQuery<PageParam, Page>,
-        options: QueryObserverOptions = .default
+        options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>
     ) {
         self.query = query
         self.options = options
@@ -128,10 +130,9 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
     /// subscription and refetch triggers, subscribes to the new key, and then
     /// follows the observer options for fetching.
     ///
-    /// With ``PlaceholderData/keepPreviousData``, the previous accumulated
-    /// pages remain visible as placeholder data while the updated query is
-    /// pending. Placeholder data is scoped to this observer and is not written
-    /// to the client cache.
+    /// ``PlaceholderData/keepPreviousData`` is scoped to the current key. When
+    /// the key changes, previous accumulated pages are cleared and are not used
+    /// as placeholder data for the updated query.
     ///
     /// - Parameters:
     ///   - query: The updated infinite query declaration.
@@ -152,6 +153,11 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
 
         stop()
         result = nil
+        rawResult = nil
+        pages = []
+        pageParams = []
+        lastSuccessfulData = nil
+        lastSuccessfulRawData = nil
         startCurrentKey(using: client)
     }
 
@@ -202,7 +208,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
     /// Calls made while a next-page fetch is running are ignored by this state
     /// object. Core also deduplicates in-flight work for the same typed key.
     public func fetchNextPage(using client: QueryClient) {
-        guard !isFetchingNextPage, hasNextPage || result?.data == nil else {
+        guard !isFetchingNextPage, hasNextPage || pages.isEmpty else {
             return
         }
 
@@ -337,26 +343,60 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
             return
         }
 
-        if let result, incoming.differsOnlyByStaleFlag(from: result) {
+        let selected = incoming.map(options.select)
+
+        if let result, selected.differsOnlyByStaleFlag(from: result) {
+            rawResult = incoming
+            updateRawPageProjections(from: incoming)
+            if incoming.isSuccess, let data = incoming.data {
+                lastSuccessfulRawData = data
+            }
+            if selected.isSuccess, let data = selected.data {
+                lastSuccessfulData = data
+            }
             return
         }
 
         if options.placeholderData == .keepPreviousData,
-           incoming.isPending,
+           selected.isPending,
            let previous = lastSuccessfulData {
+            if let previousRaw = lastSuccessfulRawData {
+                let placeholderRawResult = QueryResult(
+                    status: .pending(previous: previousRaw),
+                    isFetching: incoming.isFetching,
+                    isStale: incoming.isStale,
+                    isPlaceholderData: true,
+                    updatedAt: incoming.updatedAt
+                )
+                rawResult = placeholderRawResult
+                updateRawPageProjections(from: placeholderRawResult)
+            } else {
+                rawResult = incoming
+                updateRawPageProjections(from: incoming)
+            }
             result = QueryResult(
                 status: .pending(previous: previous),
-                isFetching: incoming.isFetching,
-                isStale: incoming.isStale,
+                isFetching: selected.isFetching,
+                isStale: selected.isStale,
                 isPlaceholderData: true,
-                updatedAt: incoming.updatedAt
+                updatedAt: selected.updatedAt
             )
         } else {
+            rawResult = incoming
+            updateRawPageProjections(from: incoming)
             if incoming.isSuccess, let data = incoming.data {
+                lastSuccessfulRawData = data
+            }
+            if selected.isSuccess, let data = selected.data {
                 lastSuccessfulData = data
             }
-            result = incoming
+            result = selected
         }
+    }
+
+    private func updateRawPageProjections(from rawResult: QueryResult<InfiniteData<PageParam, Page>>) {
+        pages = rawResult.data?.pages ?? []
+        pageParams = rawResult.data?.pageParams ?? []
     }
 
     private func shouldFetch(
@@ -376,6 +416,18 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
         case .ifStale:
             return await client.isQueryStale(key)
         }
+    }
+}
+
+public extension InfiniteQueryState where SelectedValue == InfiniteData<PageParam, Page> {
+    /// Creates observable infinite query state that exposes accumulated raw data.
+    ///
+    /// - Parameters:
+    ///   - query: The infinite query declaration to observe and fetch.
+    convenience init(
+        query: InfiniteQuery<PageParam, Page>
+    ) {
+        self.init(query: query, options: .default)
     }
 }
 

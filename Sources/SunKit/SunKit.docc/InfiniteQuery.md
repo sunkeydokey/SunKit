@@ -32,6 +32,13 @@ If no cached page exists, `fetchNextPage(_:)` loads the initial page. If
 `getNextPageParam` returns `nil`, no fetch is started and the current cached
 result is returned.
 
+SwiftUI `InfiniteQueryState` can select a render value from the full accumulated
+raw container. For example, a state can store
+`InfiniteData<Int, RepositoryPage>` in the cache while exposing a flat
+`[Repository]` to the view. Selection is observer-local; `hasNextPage` and
+`fetchNextPage(using:)` continue to use the raw pages and
+`getNextPageParam`.
+
 ## MVP Limitations
 
 SunKit's MVP infinite-query model is next-page-only. It does not provide

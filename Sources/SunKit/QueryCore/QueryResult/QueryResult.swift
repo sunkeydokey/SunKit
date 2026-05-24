@@ -117,4 +117,30 @@ public struct QueryResult<Value: Sendable>: Sendable {
             self.failureCount = failureCount
         }
     }
+
+    package func map<SelectedValue: Sendable>(
+        _ transform: @Sendable (Value) -> SelectedValue
+    ) -> QueryResult<SelectedValue> {
+        let mappedStatus: QueryStatus<SelectedValue>
+        switch status.storage {
+        case let .pending(previous):
+            mappedStatus = .pending(previous: previous.map(transform))
+        case let .success(value):
+            mappedStatus = .success(transform(value))
+        case let .failure(error, stale, failureCount):
+            mappedStatus = .failure(
+                error,
+                stale: stale.map(transform),
+                failureCount: failureCount
+            )
+        }
+
+        return QueryResult<SelectedValue>(
+            status: mappedStatus,
+            isFetching: isFetching,
+            isStale: isStale,
+            isPlaceholderData: isPlaceholderData,
+            updatedAt: updatedAt
+        )
+    }
 }

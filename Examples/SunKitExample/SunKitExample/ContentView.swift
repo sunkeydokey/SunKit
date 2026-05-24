@@ -23,6 +23,12 @@ struct ContentView: View {
                 }
 
                 NavigationLink {
+                    SelectExampleScreen()
+                } label: {
+                    Label("Select", systemImage: "line.3.horizontal.decrease.circle")
+                }
+
+                NavigationLink {
                     MutationExampleScreen()
                 } label: {
                     Label("Mutation", systemImage: "square.and.pencil")

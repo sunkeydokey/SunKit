@@ -8,20 +8,20 @@ import SunKit
 /// subscription, and fetching to an internal ``QueryState``.
 @MainActor
 @Observable
-public final class PaginatedQueryState<Input: Sendable, Page: Sendable, Value: Sendable> {
+public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue: Sendable, SelectedValue: Sendable> {
     /// The current input used to build the query key and fetch value.
     public private(set) var input: Input
 
     /// The current page parameter used to build the query key and fetch value.
     public private(set) var page: Page
 
-    /// The latest query result for the current input and page.
-    public var result: QueryResult<Value>? {
+    /// The latest selected query result for the current input and page.
+    public var result: QueryResult<SelectedValue>? {
         queryState.result
     }
 
     /// The cache identity currently observed by this state object.
-    public var key: QueryKey<Value> {
+    public var key: QueryKey<RawValue> {
         queryState.key
     }
 
@@ -29,17 +29,20 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, Value: S
     public let queryOptions: QueryOptions?
 
     /// Observer options used when the state starts or changes key.
-    public let options: QueryObserverOptions
+    ///
+    /// The raw fetched page value is stored in `QueryClient`; `options.select`
+    /// transforms it into the selected value exposed by ``result``.
+    public let options: QueryObserverOptions<RawValue, SelectedValue>
 
     @ObservationIgnored private let initialPage: Page
     @ObservationIgnored private let keyBuilder: @Sendable (Input, Page) -> [AnyQueryKeyPart]
-    @ObservationIgnored private let fetch: @Sendable (Input, Page) async throws -> Value
+    @ObservationIgnored private let fetch: @Sendable (Input, Page) async throws -> RawValue
     @ObservationIgnored private let nextPageValue: @Sendable (Page) -> Page
     @ObservationIgnored private let previousPageValue: @Sendable (Page) -> Page
     @ObservationIgnored private let canMoveToPreviousPage: @Sendable (Page) -> Bool
-    @ObservationIgnored private let queryState: QueryState<Value>
+    @ObservationIgnored private let queryState: QueryState<RawValue, SelectedValue>
 
-    /// Creates observable paginated query state from an async throwing fetcher.
+    /// Creates observable paginated query state from an async throwing raw-value fetcher.
     ///
     /// - Parameters:
     ///   - input: The initial input, such as a search term or filter value.
@@ -57,12 +60,12 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, Value: S
         input: Input,
         initialPage: Page,
         queryOptions: QueryOptions? = nil,
-        options: QueryObserverOptions = .default,
+        options: QueryObserverOptions<RawValue, SelectedValue>,
         key: @escaping @Sendable (Input, Page) -> [AnyQueryKeyPart],
         nextPage: @escaping @Sendable (Page) -> Page,
         previousPage: @escaping @Sendable (Page) -> Page,
         canMoveToPreviousPage: @escaping @Sendable (Page) -> Bool,
-        fetch: @escaping @Sendable (Input, Page) async throws -> Value
+        fetch: @escaping @Sendable (Input, Page) async throws -> RawValue
     ) {
         self.input = input
         self.page = initialPage
@@ -135,5 +138,31 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, Value: S
         queryState.update(key: keyBuilder(currentInput, currentPage), using: client) {
             try await fetch(currentInput, currentPage)
         }
+    }
+}
+
+public extension PaginatedQueryState where RawValue == SelectedValue {
+    /// Creates observable paginated query state that exposes the raw cached value.
+    convenience init(
+        input: Input,
+        initialPage: Page,
+        queryOptions: QueryOptions? = nil,
+        key: @escaping @Sendable (Input, Page) -> [AnyQueryKeyPart],
+        nextPage: @escaping @Sendable (Page) -> Page,
+        previousPage: @escaping @Sendable (Page) -> Page,
+        canMoveToPreviousPage: @escaping @Sendable (Page) -> Bool,
+        fetch: @escaping @Sendable (Input, Page) async throws -> RawValue
+    ) {
+        self.init(
+            input: input,
+            initialPage: initialPage,
+            queryOptions: queryOptions,
+            options: .default,
+            key: key,
+            nextPage: nextPage,
+            previousPage: previousPage,
+            canMoveToPreviousPage: canMoveToPreviousPage,
+            fetch: fetch
+        )
     }
 }
