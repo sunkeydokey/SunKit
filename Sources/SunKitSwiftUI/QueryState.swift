@@ -170,8 +170,10 @@ public final class QueryState<Value: Sendable> {
     public func refetch(using client: QueryClient) {
         task?.cancel()
         let observedKey = key
+        let gen = generation
         task = Task {
             let result = await client.fetchQuery(makeQuery(for: observedKey))
+            guard self.generation == gen else { return }
             self.apply(result, for: observedKey)
         }
     }

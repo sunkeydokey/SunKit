@@ -567,9 +567,13 @@ func stopPreventsGhostUpdatesFromQueuedCallbacks() async {
     state.start(using: client)
     #expect(await eventuallyOnMainActor { state.result?.data == 1 })
 
-    // stop — then immediately mutate cache. The update must NOT reach state.
+    // Enqueue an update to the cache and stop() on the same actor turn —
+    // the delivery task is already scheduled but stop() must prevent it applying.
+    Task {
+        await client.setQueryData(key, 2)
+    }
     state.stop()
-    await client.setQueryData(key, 2)
+
     try? await Task.sleep(nanoseconds: 100_000_000)
     #expect(state.result?.data == 1)
 }
