@@ -6,7 +6,23 @@ import Foundation
 /// only register listeners and deliver current values; UI adapters use these
 /// options to decide when to request fetches and how to project cached values.
 public struct QueryObserverOptions<RawValue: Sendable, SelectedValue: Sendable>: Sendable {
-    /// A Boolean value indicating whether the observer may trigger fetches.
+    /// A Boolean value that controls whether this observer automatically triggers fetches.
+    ///
+    /// When `false`, the observer still subscribes to cache publications — data
+    /// pushed by other observers is received — but the following automatic fetch
+    /// triggers are suppressed:
+    /// - Initial fetch on subscribe (`refetchOnSubscribe`)
+    /// - Scene-active refetch (`refetchOnSceneActive`)
+    /// - Network-reconnect refetch (`refetchOnNetworkReconnect`)
+    /// - Periodic polling (`refetchInterval`)
+    ///
+    /// Explicit calls to ``QueryState/refetch(using:)`` are not affected by this flag.
+    ///
+    /// To change `enabled` at runtime, pass the new value to
+    /// ``QueryState/update(key:using:fetch:enabled:)``. A `false` to `true`
+    /// transition triggers an initial fetch according to `refetchOnSubscribe`
+    /// and re-arms all active refetch triggers. A `true` to `false` transition
+    /// disarms interval, scene-active, and network-reconnect triggers immediately.
     public var enabled: Bool
 
     /// The placeholder data behavior used while fetching new data.
@@ -34,7 +50,7 @@ public struct QueryObserverOptions<RawValue: Sendable, SelectedValue: Sendable>:
     /// Creates query observer options.
     ///
     /// - Parameters:
-    ///   - enabled: Whether the observer may trigger fetches.
+    ///   - enabled: Whether the observer automatically triggers fetches. See ``enabled`` for full semantics.
     ///   - placeholderData: Placeholder behavior while fetching new data.
     ///   - refetchOnSubscribe: Refetch policy when an observer subscribes.
     ///   - refetchOnSceneActive: Refetch policy when the app scene becomes active.
@@ -69,6 +85,14 @@ public extension QueryObserverOptions where RawValue == SelectedValue {
     /// Creates identity query observer options.
     ///
     /// The observer exposes the same value type stored in the cache.
+    ///
+    /// - Parameters:
+    ///   - enabled: Whether the observer automatically triggers fetches. See ``enabled`` for full semantics.
+    ///   - placeholderData: Placeholder behavior while fetching new data.
+    ///   - refetchOnSubscribe: Refetch policy when an observer subscribes.
+    ///   - refetchOnSceneActive: Refetch policy when the app scene becomes active.
+    ///   - refetchOnNetworkReconnect: Refetch policy when network connectivity returns.
+    ///   - refetchInterval: Interval, in seconds, for periodic refetches.
     init(
         enabled: Bool = true,
         placeholderData: PlaceholderData = .none,
