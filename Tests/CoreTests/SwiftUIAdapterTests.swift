@@ -947,3 +947,72 @@ func subscriptionCancelDoesNotAbortInFlightFetch() async {
     #expect(await counter.value() == 1)
     stateB.stop()
 }
+
+@Test
+@MainActor
+func queryStateEnabledFalseToTrueViaUpdateStartsFetch() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let state = QueryState(
+        key: ["swiftui", "enabled-transition"],
+        options: QueryObserverOptions(
+            enabled: false,
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        await counter.next()
+    }
+
+    state.start(using: client)
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    #expect(await counter.value() == 0)
+
+    state.update(
+        key: ["swiftui", "enabled-transition"],
+        using: client,
+        fetch: { await counter.next() },
+        enabled: true
+    )
+
+    #expect(await eventuallyOnMainActor { state.result?.data != nil })
+    #expect(await counter.value() == 1)
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateEnabledTrueToFalseViaUpdateStopsIntervalTimer() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let state = QueryState(
+        key: ["swiftui", "enabled-disable"],
+        options: QueryObserverOptions(
+            enabled: true,
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never,
+            refetchInterval: 0.05
+        )
+    ) {
+        await counter.next()
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data != nil })
+
+    let countAfterStart = await counter.value()
+
+    state.update(
+        key: ["swiftui", "enabled-disable"],
+        using: client,
+        fetch: { await counter.next() },
+        enabled: false
+    )
+
+    try? await Task.sleep(nanoseconds: 200_000_000)
+    let countAfterDisable = await counter.value()
+    #expect(countAfterDisable == countAfterStart)
+    state.stop()
+}

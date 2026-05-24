@@ -100,42 +100,78 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
         startCurrentKey(using: client)
     }
 
-    /// Updates the observed key and fetcher, then observes the updated query.
+    /// Updates the observed key, fetcher, and enabled state, then observes the updated query.
     ///
     /// When the new key matches the current key, the state keeps the existing
     /// subscription and only replaces the fetcher used by future refetches.
+    /// When `enabled` transitions from `false` to `true` with the same key,
+    /// the state starts fetching and arms all refetch triggers.
+    /// When `enabled` transitions from `true` to `false` with the same key,
+    /// the state stops the interval timer, scene-active observer, and network monitor.
     /// When the key changes, the state cancels its current subscription and
     /// refetch triggers, clears key-scoped placeholder data, and subscribes to
     /// the new key.
-    ///
-    /// `QueryState` compares the newly built key with the current key. It does
-    /// not observe mutation inside reference-typed key parts; key parts should
-    /// be stable value snapshots.
     ///
     /// - Parameters:
     ///   - key: The cache identity parts to observe and fetch.
     ///   - client: The query client used for subscription and fetches.
     ///   - fetch: The async operation that loads the updated query value.
+    ///   - enabled: Whether the observer may trigger fetches. Defaults to `true`.
     public func update(
         key: [AnyQueryKeyPart],
         using client: QueryClient,
-        fetch: @escaping @Sendable () async throws -> RawValue
+        fetch: @escaping @Sendable () async throws -> RawValue,
+        enabled: Bool = true
     ) {
         let nextKey = QueryKey<RawValue>(key)
         self.fetch = fetch
 
-        guard nextKey != self.key else {
-            if !isObserving {
+        guard nextKey == self.key else {
+            currentEnabled = enabled
+            stop()
+            self.key = nextKey
+            result = nil
+            lastSuccessfulData = nil
+            startCurrentKey(using: client)
+            return
+        }
+
+        let wasEnabled = currentEnabled
+        currentEnabled = enabled
+
+        if !wasEnabled, enabled {
+            if isObserving {
+                let observedKey = key
+                let gen = generation
+                fetchTask?.cancel()
+                fetchTask = Task { [weak self] in
+                    guard let self else { return }
+                    if await self.shouldFetch(options.refetchOnSubscribe, key: QueryKey(observedKey), using: client) {
+                        let result = await client.fetchQuery(makeQuery(for: QueryKey(observedKey)))
+                        guard self.generation == gen else { return }
+                        self.apply(result, for: QueryKey(observedKey))
+                    }
+                    guard self.generation == gen else { return }
+                    self.startIntervalTimer(using: client)
+                    self.startSceneActiveObserver(using: client)
+                    self.startNetworkMonitor(using: client)
+                }
+            } else {
                 startCurrentKey(using: client)
             }
             return
         }
 
-        stop()
-        self.key = nextKey
-        result = nil
-        lastSuccessfulData = nil
-        startCurrentKey(using: client)
+        if wasEnabled, !enabled {
+            stopIntervalTimer()
+            stopSceneActiveObserver()
+            stopNetworkMonitor()
+            return
+        }
+
+        if !isObserving {
+            startCurrentKey(using: client)
+        }
     }
 
     private func startCurrentKey(using client: QueryClient) {
