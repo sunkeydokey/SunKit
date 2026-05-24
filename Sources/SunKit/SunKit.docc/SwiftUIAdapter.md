@@ -38,13 +38,15 @@ struct ProjectsView: View {
 `QueryState` subscribes to its key when `start(using:)` is called. String,
 integer, Boolean, and floating-point key literals are converted into Core key
 parts internally.
-Subscription delivers the current cached value only; the adapter then starts a
-fetch when
-`QueryObserverOptions.enabled` is `true` and `refetchOnSubscribe` is not
-`.never`.
+Subscription delivers the current cached value only; the adapter then uses
+`QueryObserverOptions.enabled` and `refetchOnSubscribe` to decide whether to
+fetch. `.ifStale` checks the client's current cache state instead of relying on
+the last rendered `QueryState.result`.
 
-Because Core publishes natural stale-time transitions, `QueryState.result`
-updates when cached data becomes stale.
+Core may publish natural stale-time transitions, but `QueryState.result` does
+not update when `isStale` is the only changed field. Scene-active and
+network-reconnect `.ifStale` triggers still ask `QueryClient` for the current
+stale state before deciding whether to refetch.
 
 ## Dynamic Keys
 

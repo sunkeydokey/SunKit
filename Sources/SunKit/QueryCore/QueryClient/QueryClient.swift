@@ -87,11 +87,24 @@ public actor QueryClient {
         }
 
         let result = await fetchQuery(query)
-        if let data = result.data, result.isSuccess {
+        if let data = result.data {
             return data
         }
 
         throw result.error ?? QueryClientError.missingData
+    }
+
+    /// Returns whether the typed query key is currently stale.
+    ///
+    /// Missing cache entries are treated as stale. UI adapters can use this to
+    /// decide whether `.ifStale` observer triggers should start a fetch without
+    /// relying on stale-only result publications.
+    public func isQueryStale<Value: Sendable>(_ key: QueryKey<Value>) async -> Bool {
+        guard let entry = existingEntry(for: key) else {
+            return true
+        }
+
+        return entry.isStale(now: Date(), cacheOptions: defaultCacheOptions)
     }
 
     /// Subscribes to result changes for a typed query key.
@@ -167,7 +180,7 @@ public actor QueryClient {
         entry.isInvalidated = false
         entry.result = QueryResult(
             status: .success(value),
-            isStale: entry.isStale(now: now, cacheOptions: defaultCacheOptions),
+            isStale: Self.isImmediatelyStale(cacheOptions: defaultCacheOptions),
             updatedAt: now
         )
         scheduleStaleTimer(for: entry, updatedAt: now)
@@ -201,7 +214,7 @@ public actor QueryClient {
         entry.isInvalidated = false
         entry.result = QueryResult(
             status: .success(updatedData),
-            isStale: entry.isStale(now: now, cacheOptions: defaultCacheOptions),
+            isStale: Self.isImmediatelyStale(cacheOptions: defaultCacheOptions),
             updatedAt: now
         )
         scheduleStaleTimer(for: entry, updatedAt: now)
@@ -337,7 +350,6 @@ public actor QueryClient {
         entry.staleTimer = nil
         entry.result = result
         entry.updatedAt = result.updatedAt
-        entry.isInvalidated = result.isError
         if result.isSuccess {
             entry.isInvalidated = false
         }
@@ -449,7 +461,7 @@ public actor QueryClient {
             let updatedAt = Date()
             return QueryResult(
                 status: .success(value),
-                isStale: Date().timeIntervalSince(updatedAt) >= cacheOptions.staleTime,
+                isStale: isImmediatelyStale(cacheOptions: cacheOptions),
                 updatedAt: updatedAt
             )
         } catch {
@@ -536,6 +548,10 @@ public actor QueryClient {
 
         let nanoseconds = UInt64(seconds * 1_000_000_000)
         try? await Task.sleep(nanoseconds: nanoseconds)
+    }
+
+    private nonisolated static func isImmediatelyStale(cacheOptions: QueryCacheOptions) -> Bool {
+        cacheOptions.staleTime == 0
     }
 }
 

@@ -85,8 +85,8 @@ public final class QueryState<Value: Sendable> {
 
     /// Starts observing the query with the provided client.
     ///
-    /// Subscribes to the query key and, when `options.enabled` is `true` and
-    /// `options.refetchOnSubscribe` is not `.never`, performs an initial fetch.
+    /// Subscribes to the query key and, when `options.enabled` is `true`,
+    /// performs an initial fetch according to `options.refetchOnSubscribe`.
     /// After the initial fetch, any enabled periodic, scene-active, or
     /// network-reconnect refetch triggers are armed and remain active until
     /// ``stop()`` is called.
@@ -158,7 +158,8 @@ public final class QueryState<Value: Sendable> {
 
             self.subscription = subscription
 
-            if options.enabled, options.refetchOnSubscribe != .never {
+            if options.enabled,
+               await self.shouldFetch(options.refetchOnSubscribe, key: observedKey, using: client) {
                 let result = await client.fetchQuery(makeQuery(for: observedKey))
                 guard self.generation == gen else { return }
                 self.apply(result, for: observedKey)
@@ -220,22 +221,15 @@ public final class QueryState<Value: Sendable> {
             guard let self else { return }
             Task { @MainActor in
                 guard self.generation == gen else { return }
-                self.handleSceneActive(using: client)
+                await self.handleSceneActive(using: client)
             }
         }
     }
 
     @MainActor
-    private func handleSceneActive(using client: QueryClient) {
-        switch options.refetchOnSceneActive {
-        case .never:
-            return
-        case .always:
+    private func handleSceneActive(using client: QueryClient) async {
+        if await shouldFetch(options.refetchOnSceneActive, key: key, using: client) {
             refetch(using: client)
-        case .ifStale:
-            if result?.isStale ?? true {
-                refetch(using: client)
-            }
         }
     }
 
@@ -267,7 +261,7 @@ public final class QueryState<Value: Sendable> {
             previouslySatisfied = true
             Task { @MainActor [weak self] in
                 guard let self, self.generation == gen else { return }
-                self.handleNetworkReconnect(using: client)
+                await self.handleNetworkReconnect(using: client)
             }
         }
         monitor.start(queue: queue)
@@ -276,16 +270,9 @@ public final class QueryState<Value: Sendable> {
     }
 
     @MainActor
-    private func handleNetworkReconnect(using client: QueryClient) {
-        switch options.refetchOnNetworkReconnect {
-        case .never:
-            return
-        case .always:
+    private func handleNetworkReconnect(using client: QueryClient) async {
+        if await shouldFetch(options.refetchOnNetworkReconnect, key: key, using: client) {
             refetch(using: client)
-        case .ifStale:
-            if result?.isStale ?? true {
-                refetch(using: client)
-            }
         }
     }
 
@@ -296,7 +283,7 @@ public final class QueryState<Value: Sendable> {
     }
 
     private func startIntervalTimer(using client: QueryClient) {
-        guard let interval = options.refetchInterval, interval > 0 else { return }
+        guard options.enabled, let interval = options.refetchInterval, interval > 0 else { return }
         let gen = generation
         intervalTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -322,6 +309,10 @@ public final class QueryState<Value: Sendable> {
             return
         }
 
+        if let result, incoming.differsOnlyByStaleFlag(from: result) {
+            return
+        }
+
         if options.placeholderData == .keepPreviousData,
            incoming.isPending,
            let previous = lastSuccessfulData {
@@ -342,5 +333,39 @@ public final class QueryState<Value: Sendable> {
 
     private func makeQuery(for observedKey: QueryKey<Value>) -> Query<Value> {
         Query(key: observedKey, options: queryOptions, fetch: fetch)
+    }
+
+    private func shouldFetch(
+        _ trigger: RefetchTrigger,
+        key: QueryKey<Value>,
+        using client: QueryClient
+    ) async -> Bool {
+        guard options.enabled else {
+            return false
+        }
+
+        switch trigger {
+        case .never:
+            return false
+        case .always:
+            return true
+        case .ifStale:
+            return await client.isQueryStale(key)
+        }
+    }
+}
+
+private extension QueryResult {
+    func differsOnlyByStaleFlag(from other: Self) -> Bool {
+        isStale != other.isStale
+            && isFetching == other.isFetching
+            && isPending == other.isPending
+            && isSuccess == other.isSuccess
+            && isError == other.isError
+            && isPlaceholderData == other.isPlaceholderData
+            && updatedAt == other.updatedAt
+            && failureCount == other.failureCount
+            && (data != nil) == (other.data != nil)
+            && (error != nil) == (other.error != nil)
     }
 }

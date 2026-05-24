@@ -212,6 +212,19 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     }
 }
 
+@Test func ensureQueryDataReturnsStaleDataWhenRefetchFails() async throws {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0))
+    let key = QueryKey<Int>("value")
+    await client.setQueryData(key, 42)
+    let query = Query<Int>(key: key, options: QueryOptions(retry: .never)) {
+        throw QueryClientTestError.failed
+    }
+
+    let value = try await client.ensureQueryData(query)
+
+    #expect(value == 42)
+}
+
 @Test func lateResponseDoesNotOverwriteNewerCacheEntry() async {
     let client = QueryClient()
     let key = QueryKey<Int>("value")
@@ -329,6 +342,40 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     #expect(result.isStale)
 }
 
+@Test func fetchFailureDoesNotImplicitlyInvalidateFreshData() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let key = QueryKey<Int>("value")
+    let success = Query(key: key) { 42 }
+    let failure = Query<Int>(key: key, options: QueryOptions(retry: .never)) {
+        throw QueryClientTestError.failed
+    }
+
+    _ = await client.fetchQuery(success)
+    let result = await client.fetchQuery(failure)
+
+    #expect(result.isError)
+    #expect(result.data == 42)
+    #expect(result.isStale)
+    #expect(await client.isQueryStale(key) == false)
+}
+
+@Test func failedRefetchPreservesExplicitInvalidation() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let key = QueryKey<Int>("value")
+    let success = Query(key: key) { 42 }
+    let failure = Query<Int>(key: key, options: QueryOptions(retry: .never)) {
+        throw QueryClientTestError.failed
+    }
+
+    _ = await client.fetchQuery(success)
+    await client.invalidate(key: key)
+    let result = await client.fetchQuery(failure)
+
+    #expect(result.isError)
+    #expect(result.data == 42)
+    #expect(await client.isQueryStale(key))
+}
+
 @Test func consecutiveFailuresIncrementFailureCount() async {
     let client = QueryClient()
     let query = Query<Int>(key: QueryKey<Int>("value"), options: QueryOptions(retry: .never)) {
@@ -367,6 +414,53 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
 
     #expect(!fresh.isStale)
     #expect(stale.isStale)
+}
+
+@Test func setQueryDataFreshnessFollowsStaleTime() async {
+    let freshClient = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let staleClient = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0))
+    let key = QueryKey<Int>("value")
+
+    await freshClient.setQueryData(key, 1)
+    await staleClient.setQueryData(key, 1)
+    let fresh = await currentResult(for: key, client: freshClient)
+    let stale = await currentResult(for: key, client: staleClient)
+
+    #expect(fresh?.isStale == false)
+    #expect(stale?.isStale == true)
+}
+
+@Test func updateQueryDataFreshnessFollowsStaleTime() async {
+    let freshClient = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let staleClient = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0))
+    let key = QueryKey<Int>("value")
+
+    await freshClient.setQueryData(key, 1)
+    await staleClient.setQueryData(key, 1)
+    await freshClient.updateQueryData(key) { $0 + 1 }
+    await staleClient.updateQueryData(key) { $0 + 1 }
+    let fresh = await currentResult(for: key, client: freshClient)
+    let stale = await currentResult(for: key, client: staleClient)
+
+    #expect(fresh?.data == 2)
+    #expect(fresh?.isStale == false)
+    #expect(stale?.data == 2)
+    #expect(stale?.isStale == true)
+}
+
+@Test func isQueryStaleReflectsCacheState() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let missing = QueryKey<Int>("missing")
+    let fresh = QueryKey<Int>("fresh")
+    let invalidated = QueryKey<Int>("invalidated")
+
+    await client.setQueryData(fresh, 1)
+    await client.setQueryData(invalidated, 2)
+    await client.invalidate(key: invalidated)
+
+    #expect(await client.isQueryStale(missing))
+    #expect(await client.isQueryStale(fresh) == false)
+    #expect(await client.isQueryStale(invalidated))
 }
 
 @Test func successfulQueryPublishesStaleWhenStaleTimeElapses() async {
