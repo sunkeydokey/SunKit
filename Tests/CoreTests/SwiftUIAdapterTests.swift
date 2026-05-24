@@ -1047,3 +1047,41 @@ func queryStateEnabledTrueToFalseViaUpdateStillReceivesCachePublications() async
     #expect(await eventuallyOnMainActor { state.result?.data == 42 })
     state.stop()
 }
+
+@Test
+@MainActor
+func infiniteQueryStateEnabledFalseToTrueViaUpdateStartsFetch() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let query = InfiniteQuery(
+        key: ["swiftui", "infinite-enabled-transition"],
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        await counter.next()
+    }
+    let options = QueryObserverOptions<InfiniteData<Int, Int>, InfiniteData<Int, Int>>(
+        enabled: false,
+        refetchOnSubscribe: .always,
+        refetchOnSceneActive: .never,
+        refetchOnNetworkReconnect: .never
+    )
+    let state = InfiniteQueryState(query: query, options: options)
+
+    state.start(using: client)
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    #expect(await counter.value() == 0)
+
+    let enabledQuery = InfiniteQuery(
+        key: ["swiftui", "infinite-enabled-transition"],
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        await counter.next()
+    }
+    state.update(query: enabledQuery, using: client, enabled: true)
+
+    #expect(await eventuallyOnMainActor { state.result?.data != nil })
+    #expect(await counter.value() == 1)
+    state.stop()
+}
