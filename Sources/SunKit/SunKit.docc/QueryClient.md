@@ -67,4 +67,7 @@ not called. The updater accepts and returns non-optional data; invalidation is
 only performed through `invalidate(key:)` and
 `invalidateQueries(_:exact:)`.
 
-`clear()` removes all stored query state for that client.
+`clear()` removes all stored query state for that client, cancels stale and GC
+timers, and requests cancellation of in-flight fetch tasks. Cancellation is
+cooperative: a fetcher may still finish if it ignores task cancellation, but
+cleared results are not stored or published.
