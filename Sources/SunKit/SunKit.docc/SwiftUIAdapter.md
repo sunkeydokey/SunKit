@@ -6,7 +6,8 @@ Use `SunKitSwiftUI` to bind Core query state to SwiftUI views.
 
 The SwiftUI adapter is intentionally small. It provides an environment value
 for sharing a `QueryClient`, observable `QueryState` for rendering the latest
-`QueryResult`, and observable `MutationState` for rendering mutation progress.
+`QueryResult`, observable `InfiniteQueryState` for rendering accumulated next
+pages, and observable `MutationState` for rendering mutation progress.
 
 Store `QueryState` with SwiftUI `@State` so the view owns the query lifecycle.
 `QueryState` stores the key and fetcher, then creates executable Core queries
@@ -100,6 +101,35 @@ the `QueryClient` cache for that key. Use `canMoveToPreviousPage` to enforce a
 lower bound before applying the `previousPage` closure. Appending multiple pages
 into one result is handled by the separate infinite-query API, not by
 `PaginatedQueryState`.
+
+## Infinite Queries
+
+Use `InfiniteQueryState` when the UI should append next pages into one rendered
+sequence:
+
+```swift
+@State private var repositories = InfiniteQueryState(
+    query: InfiniteQuery<Int, RepositoryPage>(
+        key: ["github", "repositories", "swift"],
+        initialPageParam: 1,
+        getNextPageParam: { lastPage, pages in
+            lastPage.hasMore ? pages.count + 1 : nil
+        }
+    ) { page in
+        try await api.searchRepositories(query: "swift", page: page)
+    }
+)
+```
+
+Call `start(using:)` from view appearance to subscribe and load the initial
+page according to `QueryObserverOptions`. Call `fetchNextPage(using:)` from a
+load-more row or scroll sentinel. `pages` and `pageParams` expose the
+accumulated data, `hasNextPage` reflects `getNextPageParam`, and
+`isFetchingNextPage` is scoped to next-page fetches.
+
+`refetch(using:)` reloads from `initialPageParam` and replaces accumulated data
+with the first page. The MVP adapter does not fetch previous pages, evict old
+pages, reverse page order, or perform optimistic infinite updates.
 
 ## Mutations
 

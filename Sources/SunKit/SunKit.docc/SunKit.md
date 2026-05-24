@@ -12,9 +12,10 @@ The first supported primitives are query identity through `QueryKey`,
 `AnyQueryKey`, and `AnyQueryKeyPart`, fetch declarations through `Query`,
 read-only query state snapshots through `QueryResult`, option ownership through
 `QueryOptions`, `QueryCacheOptions`, and `QueryObserverOptions`, and cache
-runtime behavior through `QueryClient`. Mutation Core adds typed mutation
-declarations through `Mutation` and explicit mutation execution through
-`QueryClient`.
+runtime behavior through `QueryClient`. Infinite query Core adds
+`InfiniteQuery` and `InfiniteData` for next-page-only accumulated page loading.
+Mutation Core adds typed mutation declarations through `Mutation` and explicit
+mutation execution through `QueryClient`.
 
 ## Topics
 
@@ -28,5 +29,6 @@ declarations through `Mutation` and explicit mutation execution through
 - <doc:InFlightDedupe>
 - <doc:Invalidation>
 - <doc:Subscriptions>
+- <doc:InfiniteQuery>
 - <doc:Mutations>
 - <doc:SwiftUIAdapter>
