@@ -17,6 +17,7 @@
 		604FCD483331047395D8E2F4 /* QueryExampleScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C942F14D8A52D96FB992DFD /* QueryExampleScreen.swift */; };
 		700C1CB3FD78E9457861F75E /* SunKitExampleApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C4C85E470BDD0C09FBD4F8 /* SunKitExampleApp.swift */; };
 		88D7B7E82E344A778D6EBE34 /* SelectExampleScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E077D9809E1400FA7F3339F /* SelectExampleScreen.swift */; };
+		A1B2C3D4E5F60718293A4B5C /* EnabledExampleScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5061728394A5B6C /* EnabledExampleScreen.swift */; };
 		B39A5056D06CB63A248CC450 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45A2AE4E00FA40DBA6D473A2 /* ContentView.swift */; };
 		D91F27C8149506312A641529 /* ExampleRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = D04741D2A1BBFD469E2E70FF /* ExampleRows.swift */; };
 /* End PBXBuildFile section */
@@ -24,6 +25,7 @@
 /* Begin PBXFileReference section */
 		0C942F14D8A52D96FB992DFD /* QueryExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryExampleScreen.swift; sourceTree = "<group>"; };
 		1E077D9809E1400FA7F3339F /* SelectExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectExampleScreen.swift; sourceTree = "<group>"; };
+		B1C2D3E4F5061728394A5B6C /* EnabledExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnabledExampleScreen.swift; sourceTree = "<group>"; };
 		2BB7725F62E64F57CAB57C20 /* GitHubAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubAPI.swift; sourceTree = "<group>"; };
 		45A2AE4E00FA40DBA6D473A2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		45C4C85E470BDD0C09FBD4F8 /* SunKitExampleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunKitExampleApp.swift; sourceTree = "<group>"; };
@@ -78,6 +80,7 @@
 				0C942F14D8A52D96FB992DFD /* QueryExampleScreen.swift */,
 				72B35C15515142368F39D214 /* QueryInvalidationExampleScreen.swift */,
 				1E077D9809E1400FA7F3339F /* SelectExampleScreen.swift */,
+				B1C2D3E4F5061728394A5B6C /* EnabledExampleScreen.swift */,
 				45C4C85E470BDD0C09FBD4F8 /* SunKitExampleApp.swift */,
 			);
 			path = SunKitExample;
@@ -165,6 +168,7 @@
 				604FCD483331047395D8E2F4 /* QueryExampleScreen.swift in Sources */,
 				3B83D34C3AD445D2849F28D4 /* QueryInvalidationExampleScreen.swift in Sources */,
 				88D7B7E82E344A778D6EBE34 /* SelectExampleScreen.swift in Sources */,
+				A1B2C3D4E5F60718293A4B5C /* EnabledExampleScreen.swift in Sources */,
 				700C1CB3FD78E9457861F75E /* SunKitExampleApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

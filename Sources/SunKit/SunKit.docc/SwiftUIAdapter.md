@@ -92,6 +92,40 @@ show previous data as placeholder data while the fetch is pending. Changing to a
 different key does not show data from the old key; cached data for the new key
 is still delivered immediately when available.
 
+## Conditional Fetching
+
+Use `QueryObserverOptions.enabled` to suppress automatic fetch triggers until a
+condition is met. When `enabled` is `false`, the state still subscribes to cache
+publications — data written by other observers is received immediately — but
+the following triggers are suppressed:
+
+- Initial fetch on subscribe (`refetchOnSubscribe`)
+- Scene-active refetch (`refetchOnSceneActive`)
+- Network-reconnect refetch (`refetchOnNetworkReconnect`)
+- Periodic polling (`refetchInterval`)
+
+Explicit calls to `refetch(using:)` are not affected by `enabled`.
+
+Pass `enabled` to `update(key:using:fetch:enabled:)` to react to runtime
+condition changes. A `false` to `true` transition immediately starts a fetch
+according to `refetchOnSubscribe` and re-arms all refetch triggers. A `true` to
+`false` transition disarms interval, scene-active, and network-reconnect triggers
+while keeping the subscription active.
+
+```swift
+.onChange(of: isLoggedIn) { _, isLoggedIn in
+    profile.update(
+        key: ["profile", AnyQueryKeyPart(userID)],
+        using: client,
+        fetch: { try await api.fetchProfile(userID) },
+        enabled: isLoggedIn
+    )
+}
+```
+
+`InfiniteQueryState` exposes the same pattern through
+`update(query:using:enabled:)`.
+
 ## Paginated Queries
 
 Use `PaginatedQueryState` for numbered or page-param based views where input or

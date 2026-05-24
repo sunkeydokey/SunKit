@@ -39,6 +39,12 @@ struct ContentView: View {
                 } label: {
                     Label("Query Invalidation", systemImage: "arrow.clockwise.circle")
                 }
+
+                NavigationLink {
+                    EnabledExampleScreen()
+                } label: {
+                    Label("Enabled", systemImage: "switch.2")
+                }
             }
             .navigationTitle("SunKit")
         }
