@@ -19,8 +19,22 @@ Use `data` to read the latest available value. When an initial fetch fails,
 `data` is `nil`. When a refetch fails after data already exists, `data` keeps
 the stale value and `error` describes the latest failure.
 
-`isFetching` is independent from the success and error projections. A background
-refetch can expose successful data while `isFetching` is `true`.
+## Pending and Fetching
+
+`isPending` describes whether the query is still waiting for successful data.
+`isFetching` describes whether a fetch task is currently running. These
+projections are independent.
+
+Subscribing to a query does not start a fetch. A new query can therefore publish
+its current value as pending while `isFetching` remains `false`.
+
+| Situation | `isPending` | `isFetching` | Notes |
+| --- | --- | --- | --- |
+| New query before any fetch starts | `true` | `false` | `data` is `nil`. |
+| Initial fetch running | `true` | `true` | The query is waiting for its first successful data. |
+| Successful data available | `false` | `false` | `data` contains the current value. |
+| Background refetch with successful data | `false` | `true` | Existing data remains available during the refetch. |
+| Refetch failed with stale data | `false` | `false` | `isError` is `true`, and `data` keeps the stale value. |
 
 ```swift
 let result = await client.fetchQuery(query)

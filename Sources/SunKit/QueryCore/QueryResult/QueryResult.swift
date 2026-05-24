@@ -8,17 +8,12 @@ import Foundation
 /// read this value from `QueryResult`, but cannot construct arbitrary statuses.
 public struct QueryStatus<Value: Sendable>: Sendable {
     internal enum Storage: Sendable {
-        case idle
         case pending(previous: Value?)
         case success(Value)
         case failure(Error, stale: Value?, failureCount: Int)
     }
 
     internal let storage: Storage
-
-    internal static var idle: Self {
-        Self(storage: .idle)
-    }
 
     package static func pending(previous: Value?) -> Self {
         Self(storage: .pending(previous: previous))
@@ -48,7 +43,11 @@ public struct QueryResult<Value: Sendable>: Sendable {
     /// The latest error when the query is in an error state.
     public let error: Error?
 
-    /// A Boolean value indicating whether the query is waiting for data.
+    /// A Boolean value indicating whether the query is waiting for successful data.
+    ///
+    /// This projection is independent from ``isFetching``. A query can be
+    /// pending before a fetch starts, and cached data can refetch in the
+    /// background without becoming pending again.
     public let isPending: Bool
 
     /// A Boolean value indicating whether the query currently has successful data.
@@ -57,7 +56,10 @@ public struct QueryResult<Value: Sendable>: Sendable {
     /// A Boolean value indicating whether the query is in an error state.
     public let isError: Bool
 
-    /// A Boolean value indicating whether a fetch is currently running.
+    /// A Boolean value indicating whether a fetch task is currently running.
+    ///
+    /// This projection is independent from ``isPending``. Background refetches
+    /// can run while successful or stale data remains available.
     public let isFetching: Bool
 
     /// A Boolean value indicating whether the data should be treated as stale.
@@ -90,14 +92,6 @@ public struct QueryResult<Value: Sendable>: Sendable {
         self.updatedAt = updatedAt
 
         switch status.storage {
-        case .idle:
-            self.data = nil
-            self.error = nil
-            self.isPending = false
-            self.isSuccess = false
-            self.isError = false
-            self.failureCount = 0
-
         case let .pending(previous):
             self.data = previous
             self.error = nil

@@ -5,7 +5,7 @@ private enum TestError: Error {
     case failed
 }
 
-@Test func idleQueryResultComesFromSubscriptionOnly() async {
+@Test func newQueryResultStartsPendingWithoutFetching() async {
     let client = QueryClient()
     let key = QueryKey<String>("value")
 
@@ -13,7 +13,7 @@ private enum TestError: Error {
 
     #expect(result?.data == nil)
     #expect(result?.error == nil)
-    #expect(result?.isPending == false)
+    #expect(result?.isPending == true)
     #expect(result?.isSuccess == false)
     #expect(result?.isError == false)
     #expect(result?.isFetching == false)
