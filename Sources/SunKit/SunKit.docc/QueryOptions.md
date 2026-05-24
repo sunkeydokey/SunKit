@@ -19,7 +19,12 @@ Default query execution retries failed fetches up to three times with
 exponential backoff capped at 30 seconds. Cache data is stale immediately by
 default and inactive cache entries may remain for five minutes. Observers are
 enabled by default and refetch on subscribe, scene activation, and network
-reconnect only when cached data is stale.
+reconnect only when cached data is stale. Setting `enabled` to `false` suppresses
+all automatic refetch triggers while keeping the subscription alive. Pass
+`enabled` to `update(key:using:fetch:enabled:)` or
+`update(query:using:enabled:)` to react to runtime changes — a `false` to `true`
+transition triggers an initial fetch and re-arms all active triggers; a `true` to
+`false` transition disarms them immediately.
 
 Observer `select` transforms raw cached data only for the observer that owns the
 options. It does not change cache identity, the value stored by `QueryClient`,
