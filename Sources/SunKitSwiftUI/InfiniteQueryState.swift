@@ -1,3 +1,9 @@
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+import Network
 import Observation
 import SunKit
 
@@ -53,13 +59,27 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
     /// Observer options used when the state starts.
     public let options: QueryObserverOptions
 
-    @ObservationIgnored private let query: InfiniteQuery<PageParam, Page>
+    @ObservationIgnored private var query: InfiniteQuery<PageParam, Page>
     @ObservationIgnored nonisolated(unsafe) private var subscription: QuerySubscription?
     @ObservationIgnored nonisolated(unsafe) private var subscriptionTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var fetchTask: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var nextPageTask: Task<Void, Never>?
+    @ObservationIgnored private var lastSuccessfulData: InfiniteData<PageParam, Page>?
+    @ObservationIgnored nonisolated(unsafe) private var sceneActiveObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var pathMonitor: NWPathMonitor?
+    @ObservationIgnored nonisolated(unsafe) private var pathMonitorQueue: DispatchQueue?
     @ObservationIgnored private var isObserving = false
     @ObservationIgnored nonisolated(unsafe) private var generation: UInt64 = 0
+
+    static var sceneActiveNotificationName: Notification.Name {
+        #if canImport(UIKit)
+        return UIApplication.didBecomeActiveNotification
+        #elseif canImport(AppKit)
+        return NSApplication.didBecomeActiveNotification
+        #else
+        return Notification.Name("_InfiniteQueryStateSceneActive")
+        #endif
+    }
 
     /// Creates observable infinite query state.
     ///
@@ -75,6 +95,8 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
     }
 
     deinit {
+        stopSceneActiveObserver()
+        stopNetworkMonitor()
         subscriptionTask?.cancel()
         fetchTask?.cancel()
         nextPageTask?.cancel()
@@ -90,15 +112,54 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
     ///
     /// Subscribes to the accumulated cache key and, when `options.enabled` is
     /// `true`, performs an initial fetch according to
-    /// `options.refetchOnSubscribe`.
+    /// `options.refetchOnSubscribe`. After the initial fetch, any enabled
+    /// scene-active or network-reconnect refetch triggers are armed and remain
+    /// active until ``stop()`` is called.
     public func start(using client: QueryClient) {
         stop()
+        startCurrentKey(using: client)
+    }
+
+    /// Updates the observed infinite query, then observes the updated cache key.
+    ///
+    /// When the new query uses the same key, the state keeps the existing
+    /// subscription and uses the new query declaration for later refetches and
+    /// next-page fetches. When the key changes, the state cancels the current
+    /// subscription and refetch triggers, subscribes to the new key, and then
+    /// follows the observer options for fetching.
+    ///
+    /// With ``PlaceholderData/keepPreviousData``, the previous accumulated
+    /// pages remain visible as placeholder data while the updated query is
+    /// pending. Placeholder data is scoped to this observer and is not written
+    /// to the client cache.
+    ///
+    /// - Parameters:
+    ///   - query: The updated infinite query declaration.
+    ///   - client: The query client used for subscription and fetches.
+    public func update(
+        query: InfiniteQuery<PageParam, Page>,
+        using client: QueryClient
+    ) {
+        let previousKey = self.query.key
+        self.query = query
+
+        guard query.key != previousKey else {
+            if !isObserving {
+                startCurrentKey(using: client)
+            }
+            return
+        }
+
+        stop()
+        result = nil
         startCurrentKey(using: client)
     }
 
     /// Stops observing query publications and cancels active state tasks.
     public func stop() {
         generation += 1
+        stopSceneActiveObserver()
+        stopNetworkMonitor()
         isObserving = false
         subscriptionTask?.cancel()
         subscriptionTask = nil
@@ -121,7 +182,9 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
     /// Refetches the infinite query from its initial page.
     ///
     /// MVP refetch replaces accumulated pages with the first page loaded from
-    /// `initialPageParam`.
+    /// `initialPageParam`. With ``PlaceholderData/keepPreviousData``, previous
+    /// pages remain visible as observer-local placeholder data while the
+    /// refetch is pending.
     public func refetch(using client: QueryClient) {
         fetchTask?.cancel()
         let observedKey = query.key
@@ -187,7 +250,83 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
                 guard self.generation == gen else { return }
                 self.apply(result, for: observedKey)
             }
+
+            guard self.generation == gen else { return }
+            self.startSceneActiveObserver(using: client)
+            self.startNetworkMonitor(using: client)
         }
+    }
+
+    private func startSceneActiveObserver(using client: QueryClient) {
+        guard options.refetchOnSceneActive != .never else { return }
+        let gen = generation
+        sceneActiveObserver = NotificationCenter.default.addObserver(
+            forName: Self.sceneActiveNotificationName,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                guard self.generation == gen else { return }
+                await self.handleSceneActive(using: client)
+            }
+        }
+    }
+
+    @MainActor
+    func handleSceneActive(using client: QueryClient) async {
+        if await shouldFetch(options.refetchOnSceneActive, key: key, using: client) {
+            refetch(using: client)
+        }
+    }
+
+    private nonisolated func stopSceneActiveObserver() {
+        if let observer = sceneActiveObserver {
+            NotificationCenter.default.removeObserver(observer)
+            sceneActiveObserver = nil
+        }
+    }
+
+    private func startNetworkMonitor(using client: QueryClient) {
+        guard options.refetchOnNetworkReconnect != .never else { return }
+        let gen = generation
+        let monitor = NWPathMonitor()
+        let queue = DispatchQueue(label: "sunkit.infinite-network-monitor", qos: .utility)
+        nonisolated(unsafe) var isFirstUpdate = true
+        nonisolated(unsafe) var previouslySatisfied = false
+        monitor.pathUpdateHandler = { [weak self] path in
+            let nowSatisfied = path.status == .satisfied
+            if isFirstUpdate {
+                isFirstUpdate = false
+                previouslySatisfied = nowSatisfied
+                return
+            }
+            guard nowSatisfied, !previouslySatisfied else {
+                previouslySatisfied = nowSatisfied
+                return
+            }
+            previouslySatisfied = true
+            Task { @MainActor [weak self] in
+                guard let self, self.generation == gen else { return }
+                await self.handleNetworkReconnect(using: client)
+            }
+        }
+        monitor.start(queue: queue)
+        pathMonitor = monitor
+        pathMonitorQueue = queue
+    }
+
+    @MainActor
+    func handleNetworkReconnect(using client: QueryClient) async {
+        if await shouldFetch(options.refetchOnNetworkReconnect, key: key, using: client) {
+            refetch(using: client)
+        }
+    }
+
+    private nonisolated func stopNetworkMonitor() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
+        pathMonitorQueue = nil
     }
 
     private func apply(
@@ -198,7 +337,26 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
             return
         }
 
-        result = incoming
+        if let result, incoming.differsOnlyByStaleFlag(from: result) {
+            return
+        }
+
+        if options.placeholderData == .keepPreviousData,
+           incoming.isPending,
+           let previous = lastSuccessfulData {
+            result = QueryResult(
+                status: .pending(previous: previous),
+                isFetching: incoming.isFetching,
+                isStale: incoming.isStale,
+                isPlaceholderData: true,
+                updatedAt: incoming.updatedAt
+            )
+        } else {
+            if incoming.isSuccess, let data = incoming.data {
+                lastSuccessfulData = data
+            }
+            result = incoming
+        }
     }
 
     private func shouldFetch(
@@ -218,5 +376,20 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable> {
         case .ifStale:
             return await client.isQueryStale(key)
         }
+    }
+}
+
+private extension QueryResult {
+    func differsOnlyByStaleFlag(from other: Self) -> Bool {
+        isStale != other.isStale
+            && isFetching == other.isFetching
+            && isPending == other.isPending
+            && isSuccess == other.isSuccess
+            && isError == other.isError
+            && isPlaceholderData == other.isPlaceholderData
+            && updatedAt == other.updatedAt
+            && failureCount == other.failureCount
+            && (data != nil) == (other.data != nil)
+            && (error != nil) == (other.error != nil)
     }
 }

@@ -19,9 +19,34 @@ private actor InfiniteFetchRecorder {
     }
 }
 
+private actor InfiniteValueCounter {
+    private var count = 0
+
+    func nextPage() -> String {
+        count += 1
+        return "page-\(count)"
+    }
+
+    func value() -> Int {
+        count
+    }
+}
+
 private func eventuallyOnMainActor(_ condition: @escaping @MainActor () -> Bool) async -> Bool {
     for _ in 0..<50 {
         if await MainActor.run(body: condition) {
+            return true
+        }
+
+        try? await Task.sleep(nanoseconds: 20_000_000)
+    }
+
+    return false
+}
+
+private func eventually(_ condition: @escaping @Sendable () async -> Bool) async -> Bool {
+    for _ in 0..<50 {
+        if await condition() {
             return true
         }
 
@@ -241,5 +266,249 @@ func infiniteQueryStateConcurrentFetchNextPageDoesNotDuplicateAppend() async {
 
     #expect(await eventuallyOnMainActor { state.pages == ["page-0", "page-1"] })
     #expect(await recorder.values() == [0, 1])
+    state.stop()
+}
+
+@Test
+@MainActor
+func infiniteQueryStateRefetchesOnSceneActiveNotification() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let counter = InfiniteValueCounter()
+    let query = InfiniteQuery<Int, String>(
+        key: ["swiftui", "infinite", "scene-active"],
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        await counter.nextPage()
+    }
+    let state = InfiniteQueryState(
+        query: query,
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .always,
+            refetchOnNetworkReconnect: .never
+        )
+    )
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.pages == ["page-1"] })
+    try? await Task.sleep(nanoseconds: 20_000_000)
+
+    NotificationCenter.default.post(
+        name: InfiniteQueryState<Int, String>.sceneActiveNotificationName,
+        object: nil
+    )
+
+    #expect(await eventuallyOnMainActor { state.pages == ["page-2"] })
+    state.stop()
+}
+
+@Test
+@MainActor
+func infiniteQueryStateNetworkReconnectAlwaysRefetches() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let counter = InfiniteValueCounter()
+    let query = InfiniteQuery<Int, String>(
+        key: ["swiftui", "infinite", "network-always"],
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        await counter.nextPage()
+    }
+    let state = InfiniteQueryState(
+        query: query,
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .always
+        )
+    )
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.pages == ["page-1"] })
+
+    await state.handleNetworkReconnect(using: client)
+
+    #expect(await eventuallyOnMainActor { state.pages == ["page-2"] })
+    state.stop()
+}
+
+@Test
+@MainActor
+func infiniteQueryStateNetworkReconnectIfStaleRefetchesStaleData() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0))
+    let counter = InfiniteValueCounter()
+    let query = InfiniteQuery<Int, String>(
+        key: ["swiftui", "infinite", "network-if-stale"],
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        await counter.nextPage()
+    }
+    let state = InfiniteQueryState(
+        query: query,
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .ifStale
+        )
+    )
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.pages == ["page-1"] })
+
+    await state.handleNetworkReconnect(using: client)
+
+    #expect(await eventuallyOnMainActor { state.pages == ["page-2"] })
+    state.stop()
+}
+
+@Test
+@MainActor
+func infiniteQueryStateIgnoresStaleOnlyPublication() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0.02))
+    let counter = InfiniteValueCounter()
+    let key = QueryKey<InfiniteData<Int, String>>("swiftui", "infinite", "stale-only")
+    let query = InfiniteQuery<Int, String>(
+        key: key,
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        await counter.nextPage()
+    }
+    let state = InfiniteQueryState(
+        query: query,
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .ifStale,
+            refetchOnNetworkReconnect: .never
+        )
+    )
+
+    state.start(using: client)
+
+    #expect(await eventuallyOnMainActor { state.pages == ["page-1"] && state.result?.isStale == false })
+    let becameStale = await eventually {
+        await client.isQueryStale(key)
+    }
+    #expect(becameStale)
+    #expect(state.result?.isStale == false)
+    #expect(await counter.value() == 1)
+    state.stop()
+}
+
+@Test
+@MainActor
+func infiniteQueryStateSameKeyUpdateUsesNewQueryForRefetch() async {
+    let client = QueryClient()
+    let key = QueryKey<InfiniteData<Int, String>>("swiftui", "infinite", "same-key-update")
+    let oldQuery = InfiniteQuery<Int, String>(
+        key: key,
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        "old"
+    }
+    let newQuery = InfiniteQuery<Int, String>(
+        key: key,
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        "new"
+    }
+    let state = InfiniteQueryState(query: oldQuery, options: immediateInfiniteOptions)
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.pages == ["old"] })
+
+    state.update(query: newQuery, using: client)
+    state.refetch(using: client)
+
+    #expect(await eventuallyOnMainActor { state.pages == ["new"] })
+    state.stop()
+}
+
+@Test
+@MainActor
+func infiniteQueryStateKeepPreviousDataExposesPreviousPagesWhileRefetching() async {
+    let client = QueryClient()
+    let counter = InfiniteValueCounter()
+    let query = InfiniteQuery<Int, String>(
+        key: ["swiftui", "infinite", "refetch-placeholder"],
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        let page = await counter.nextPage()
+        if page == "page-2" {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return page
+    }
+    let state = InfiniteQueryState(
+        query: query,
+        options: QueryObserverOptions(
+            placeholderData: .keepPreviousData,
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    )
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.pages == ["page-1"] })
+
+    state.refetch(using: client)
+
+    #expect(await eventuallyOnMainActor {
+        state.result?.isPending == true
+            && state.result?.isPlaceholderData == true
+            && state.pages == ["page-1"]
+    })
+    #expect(await eventuallyOnMainActor { state.pages == ["page-2"] })
+    #expect(state.result?.isPlaceholderData == false)
+    state.stop()
+}
+
+@Test
+@MainActor
+func infiniteQueryStateKeyUpdateKeepsPreviousPagesAsPlaceholder() async {
+    let client = QueryClient()
+    let oldQuery = InfiniteQuery<Int, String>(
+        key: ["swiftui", "infinite", "placeholder", "old"],
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        "old"
+    }
+    let newQuery = InfiniteQuery<Int, String>(
+        key: ["swiftui", "infinite", "placeholder", "new"],
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        return "new"
+    }
+    let state = InfiniteQueryState(
+        query: oldQuery,
+        options: QueryObserverOptions(
+            placeholderData: .keepPreviousData,
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    )
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.pages == ["old"] })
+
+    state.update(query: newQuery, using: client)
+
+    #expect(await eventuallyOnMainActor {
+        state.result?.isPending == true
+            && state.result?.isPlaceholderData == true
+            && state.pages == ["old"]
+    })
+    #expect(await eventuallyOnMainActor { state.pages == ["new"] })
+    #expect(state.result?.isPlaceholderData == false)
     state.stop()
 }
