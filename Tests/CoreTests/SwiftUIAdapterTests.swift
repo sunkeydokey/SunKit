@@ -947,3 +947,141 @@ func subscriptionCancelDoesNotAbortInFlightFetch() async {
     #expect(await counter.value() == 1)
     stateB.stop()
 }
+
+@Test
+@MainActor
+func queryStateEnabledFalseToTrueViaUpdateStartsFetch() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let state = QueryState(
+        key: ["swiftui", "enabled-transition"],
+        options: QueryObserverOptions(
+            enabled: false,
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        await counter.next()
+    }
+
+    state.start(using: client)
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    #expect(await counter.value() == 0)
+
+    state.update(
+        key: ["swiftui", "enabled-transition"],
+        using: client,
+        fetch: { await counter.next() },
+        enabled: true
+    )
+
+    #expect(await eventuallyOnMainActor { state.result?.data != nil })
+    #expect(await counter.value() == 1)
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateEnabledTrueToFalseViaUpdateStopsIntervalTimer() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let state = QueryState(
+        key: ["swiftui", "enabled-disable"],
+        options: QueryObserverOptions(
+            enabled: true,
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never,
+            refetchInterval: 0.05
+        )
+    ) {
+        await counter.next()
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data != nil })
+
+    let countAfterStart = await counter.value()
+
+    state.update(
+        key: ["swiftui", "enabled-disable"],
+        using: client,
+        fetch: { await counter.next() },
+        enabled: false
+    )
+
+    try? await Task.sleep(nanoseconds: 200_000_000)
+    let countAfterDisable = await counter.value()
+    #expect(countAfterDisable == countAfterStart)
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateEnabledTrueToFalseViaUpdateStillReceivesCachePublications() async {
+    let client = QueryClient()
+    let rawKey = QueryKey<Int>("swiftui", "enabled-disable-receives")
+    let state = QueryState(
+        key: ["swiftui", "enabled-disable-receives"],
+        options: QueryObserverOptions(
+            enabled: true,
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) { 1 }
+
+    state.start(using: client)
+
+    state.update(
+        key: ["swiftui", "enabled-disable-receives"],
+        using: client,
+        fetch: { 1 },
+        enabled: false
+    )
+
+    // Push data directly into cache — disabled observer should still receive it
+    await client.setQueryData(rawKey, 42)
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 42 })
+    state.stop()
+}
+
+@Test
+@MainActor
+func infiniteQueryStateEnabledFalseToTrueViaUpdateStartsFetch() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let query = InfiniteQuery(
+        key: ["swiftui", "infinite-enabled-transition"],
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        await counter.next()
+    }
+    let options = QueryObserverOptions<InfiniteData<Int, Int>, InfiniteData<Int, Int>>(
+        enabled: false,
+        refetchOnSubscribe: .always,
+        refetchOnSceneActive: .never,
+        refetchOnNetworkReconnect: .never
+    )
+    let state = InfiniteQueryState(query: query, options: options)
+
+    state.start(using: client)
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    #expect(await counter.value() == 0)
+
+    let enabledQuery = InfiniteQuery(
+        key: ["swiftui", "infinite-enabled-transition"],
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        await counter.next()
+    }
+    state.update(query: enabledQuery, using: client, enabled: true)
+
+    #expect(await eventuallyOnMainActor { state.result?.data != nil })
+    #expect(await counter.value() == 1)
+    state.stop()
+}

@@ -71,6 +71,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     @ObservationIgnored nonisolated(unsafe) private var pathMonitor: NWPathMonitor?
     @ObservationIgnored nonisolated(unsafe) private var pathMonitorQueue: DispatchQueue?
     @ObservationIgnored private var isObserving = false
+    @ObservationIgnored private var currentEnabled: Bool
     @ObservationIgnored nonisolated(unsafe) private var generation: UInt64 = 0
 
     static var sceneActiveNotificationName: Notification.Name {
@@ -94,6 +95,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     ) {
         self.query = query
         self.options = options
+        self.currentEnabled = options.enabled
     }
 
     deinit {
@@ -122,43 +124,76 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         startCurrentKey(using: client)
     }
 
-    /// Updates the observed infinite query, then observes the updated cache key.
+    /// Updates the observed infinite query and enabled state.
     ///
-    /// When the new query uses the same key, the state keeps the existing
-    /// subscription and uses the new query declaration for later refetches and
-    /// next-page fetches. When the key changes, the state cancels the current
-    /// subscription and refetch triggers, subscribes to the new key, and then
-    /// follows the observer options for fetching.
-    ///
-    /// ``PlaceholderData/keepPreviousData`` is scoped to the current key. When
-    /// the key changes, previous accumulated pages are cleared and are not used
-    /// as placeholder data for the updated query.
+    /// When the new key matches the current key, the state keeps the existing
+    /// subscription and only replaces the query used by future fetches.
+    /// When `enabled` transitions from `false` to `true` with the same key,
+    /// the state starts fetching and arms all refetch triggers.
+    /// When `enabled` transitions from `true` to `false` with the same key,
+    /// the state stops the scene-active observer and network monitor.
+    /// When the key changes, the state cancels its current subscription and
+    /// refetch triggers, clears accumulated pages, and subscribes to the new key.
     ///
     /// - Parameters:
     ///   - query: The updated infinite query declaration.
     ///   - client: The query client used for subscription and fetches.
+    ///   - enabled: Whether the observer may trigger fetches. Defaults to `true`.
     public func update(
         query: InfiniteQuery<PageParam, Page>,
-        using client: QueryClient
+        using client: QueryClient,
+        enabled: Bool = true
     ) {
         let previousKey = self.query.key
         self.query = query
 
-        guard query.key != previousKey else {
-            if !isObserving {
+        guard query.key == previousKey else {
+            currentEnabled = enabled
+            stop()
+            result = nil
+            rawResult = nil
+            pages = []
+            pageParams = []
+            lastSuccessfulData = nil
+            lastSuccessfulRawData = nil
+            startCurrentKey(using: client)
+            return
+        }
+
+        let wasEnabled = currentEnabled
+        currentEnabled = enabled
+
+        if !wasEnabled, enabled {
+            if isObserving {
+                let observedKey = self.key
+                let gen = generation
+                fetchTask?.cancel()
+                fetchTask = Task { [weak self] in
+                    guard let self else { return }
+                    if await self.shouldFetch(options.refetchOnSubscribe, key: observedKey, using: client) {
+                        let result = await client.fetchInfiniteQuery(self.query)
+                        guard self.generation == gen else { return }
+                        self.apply(result, for: observedKey)
+                    }
+                    guard self.generation == gen else { return }
+                    self.startSceneActiveObserver(using: client)
+                    self.startNetworkMonitor(using: client)
+                }
+            } else {
                 startCurrentKey(using: client)
             }
             return
         }
 
-        stop()
-        result = nil
-        rawResult = nil
-        pages = []
-        pageParams = []
-        lastSuccessfulData = nil
-        lastSuccessfulRawData = nil
-        startCurrentKey(using: client)
+        if wasEnabled, !enabled {
+            stopSceneActiveObserver()
+            stopNetworkMonitor()
+            return
+        }
+
+        if !isObserving {
+            startCurrentKey(using: client)
+        }
     }
 
     /// Stops observing query publications and cancels active state tasks.
@@ -404,7 +439,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         key: QueryKey<InfiniteData<PageParam, Page>>,
         using client: QueryClient
     ) async -> Bool {
-        guard options.enabled else {
+        guard currentEnabled else {
             return false
         }
 
