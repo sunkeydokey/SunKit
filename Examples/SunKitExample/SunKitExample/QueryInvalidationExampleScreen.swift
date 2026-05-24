@@ -7,7 +7,7 @@ struct QueryInvalidationExampleScreen: View {
     @Environment(\.queryClient) private var client
 
     @State private var title = "New project"
-    @State private var projects = QueryState<InvalidationProjectSnapshot>(
+    @State private var projects = QueryState<InvalidationProjectSnapshot, InvalidationProjectSnapshot>(
         key: Self.projectsKey
     ) {
         try await Self.server.fetchProjects()

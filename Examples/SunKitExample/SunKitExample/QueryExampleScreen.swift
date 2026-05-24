@@ -6,7 +6,7 @@ struct QueryExampleScreen: View {
     @Environment(\.queryClient) private var client
 
     @State private var username = "apple"
-    @State private var followers = QueryState<[GitHubUser]>(
+    @State private var followers = QueryState<[GitHubUser], [GitHubUser]>(
         key: ["github", "followers", "apple"]
     ) {
         try await GitHubAPI.followers(username: "apple")

@@ -49,6 +49,24 @@ not update when `isStale` is the only changed field. Scene-active and
 network-reconnect `.ifStale` triggers still ask `QueryClient` for the current
 stale state before deciding whether to refetch.
 
+## Selecting Data
+
+Use `QueryObserverOptions.select` when a view should render a projection of the
+cached value. The cache stores the raw fetch result; only the observing state
+exposes the selected value:
+
+```swift
+@State private var followerCount = QueryState<[GitHubUser], Int>(
+    key: ["followers", "apple"],
+    options: QueryObserverOptions(select: { $0.count })
+) {
+    try await api.followers(username: "apple")
+}
+```
+
+`select` also applies to cached current values, stale data after refetch
+failures, and `keepPreviousData` placeholders.
+
 ## Dynamic Keys
 
 Use `update(key:using:fetch:)` when the same SwiftUI state object should observe
@@ -141,12 +159,27 @@ new key and starts from `initialPageParam`.
 
 `keepPreviousData` also applies to infinite queries. When enabled, previous
 `pages` and `pageParams` remain visible as observer-local placeholder data
-while a refetch or key change is pending. Placeholder data is not written to
-the `QueryClient` cache.
+while a refetch for the same key is pending. When the key changes, previous
+pages are cleared and are not used as placeholder data for the new key.
+Placeholder data is not written to the `QueryClient` cache.
 
 `refetch(using:)` reloads from `initialPageParam` and replaces accumulated data
 with the first page. The MVP adapter does not fetch previous pages, evict old
 pages, reverse page order, or perform optimistic infinite updates.
+
+Infinite query selection transforms the full accumulated raw container:
+
+```swift
+@State private var repositories = InfiniteQueryState<Int, SearchPage, [Repository]>(
+    query: repositoryQuery,
+    options: QueryObserverOptions(select: { data in
+        data.pages.flatMap(\.items)
+    })
+)
+```
+
+`hasNextPage` and `fetchNextPage(using:)` still use the raw pages and
+`getNextPageParam`; selected values are for rendering only.
 
 ## Mutations
 

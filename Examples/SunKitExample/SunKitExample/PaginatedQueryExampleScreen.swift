@@ -6,7 +6,7 @@ struct PaginatedQueryExampleScreen: View {
     @Environment(\.queryClient) private var client
 
     @State private var searchText = "swift language:swift"
-    @State private var repositories = PaginatedQueryState<String, Int, GitHubRepositorySearchPage>(
+    @State private var repositories = PaginatedQueryState<String, Int, GitHubRepositorySearchPage, GitHubRepositorySearchPage>(
         input: "swift language:swift",
         initialPage: 1,
         key: { query, page in
