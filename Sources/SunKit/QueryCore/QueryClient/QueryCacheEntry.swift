@@ -46,7 +46,7 @@ internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unch
 
     init(key: QueryKey<Value>) {
         self.typedKey = key
-        self.result = QueryResult(status: .idle)
+        self.result = QueryResult(status: .pending(previous: nil))
         self.updatedAt = nil
         self.isInvalidated = false
         self.requestID = 0
