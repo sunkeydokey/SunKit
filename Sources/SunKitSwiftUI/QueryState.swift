@@ -27,16 +27,16 @@ public final class QueryState<Value: Sendable> {
     /// Observer options used when the state starts.
     public let options: QueryObserverOptions
 
-    @ObservationIgnored private var subscription: QuerySubscription?
-    @ObservationIgnored private var subscriptionTask: Task<Void, Never>?
-    @ObservationIgnored private var fetchTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var subscription: QuerySubscription?
+    @ObservationIgnored nonisolated(unsafe) private var subscriptionTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var fetchTask: Task<Void, Never>?
     @ObservationIgnored private var lastSuccessfulData: Value?
-    @ObservationIgnored private var intervalTask: Task<Void, Never>?
-    @ObservationIgnored private var sceneActiveObserver: NSObjectProtocol?
-    @ObservationIgnored private var pathMonitor: NWPathMonitor?
-    @ObservationIgnored private var pathMonitorQueue: DispatchQueue?
+    @ObservationIgnored nonisolated(unsafe) private var intervalTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var sceneActiveObserver: NSObjectProtocol?
+    @ObservationIgnored nonisolated(unsafe) private var pathMonitor: NWPathMonitor?
+    @ObservationIgnored nonisolated(unsafe) private var pathMonitorQueue: DispatchQueue?
     @ObservationIgnored private var isObserving = false
-    @ObservationIgnored private var generation: UInt64 = 0
+    @ObservationIgnored nonisolated(unsafe) private var generation: UInt64 = 0
     @ObservationIgnored private var fetch: @Sendable () async throws -> Value
 
     static var sceneActiveNotificationName: Notification.Name {
@@ -70,6 +70,9 @@ public final class QueryState<Value: Sendable> {
     }
 
     deinit {
+        stopIntervalTimer()
+        stopSceneActiveObserver()
+        stopNetworkMonitor()
         subscriptionTask?.cancel()
         fetchTask?.cancel()
 
@@ -236,7 +239,7 @@ public final class QueryState<Value: Sendable> {
         }
     }
 
-    private func stopSceneActiveObserver() {
+    private nonisolated func stopSceneActiveObserver() {
         if let observer = sceneActiveObserver {
             NotificationCenter.default.removeObserver(observer)
             sceneActiveObserver = nil
@@ -286,7 +289,7 @@ public final class QueryState<Value: Sendable> {
         }
     }
 
-    private func stopNetworkMonitor() {
+    private nonisolated func stopNetworkMonitor() {
         pathMonitor?.cancel()
         pathMonitor = nil
         pathMonitorQueue = nil
@@ -307,7 +310,7 @@ public final class QueryState<Value: Sendable> {
         }
     }
 
-    private func stopIntervalTimer() {
+    private nonisolated func stopIntervalTimer() {
         intervalTask?.cancel()
         intervalTask = nil
     }

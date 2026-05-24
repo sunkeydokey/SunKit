@@ -633,3 +633,33 @@ func refetchBeforeSubscriptionSetupCompletesStillReceivesCacheUpdates() async {
     #expect(await eventuallyOnMainActor { state.result?.data == "updated" })
     state.stop()
 }
+
+@Test
+@MainActor
+func queryStateDeinitCleansUpAllResources() async {
+    let client = QueryClient()
+    var state: QueryState<Int>? = QueryState(
+        key: ["lifecycle", "deinit"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .always,
+            refetchOnNetworkReconnect: .always,
+            refetchInterval: 60
+        )
+    ) { 1 }
+
+    weak var weakState = state
+    state?.start(using: client)
+
+    // Wait for all triggers to arm
+    #expect(await eventuallyOnMainActor { state?.result?.data == 1 })
+
+    // Release — deinit must not require a stop() call first
+    state = nil
+
+    // Give any lingering tasks a moment to complete
+    try? await Task.sleep(nanoseconds: 100_000_000)
+
+    // If deinit did not clean up, the weak ref may still be retained by a Task/Observer
+    #expect(weakState == nil)
+}
