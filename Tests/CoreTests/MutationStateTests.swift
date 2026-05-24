@@ -7,6 +7,19 @@ private enum MutationStateTestError: Error, Equatable {
     case failed
 }
 
+private actor MutationStateAttemptCounter {
+    private var count = 0
+
+    func next() -> Int {
+        count += 1
+        return count
+    }
+
+    func value() -> Int {
+        count
+    }
+}
+
 private func eventuallyOnMainActor(_ condition: @escaping @MainActor () -> Bool) async -> Bool {
     for _ in 0..<50 {
         if await MainActor.run(body: condition) {
@@ -66,6 +79,28 @@ func mutationStateTransitionsToPendingThenFailure() async {
     #expect(state.result.data == nil)
     #expect(!state.result.isPending)
     #expect(!state.result.isSuccess)
+}
+
+@Test
+@MainActor
+func mutationStateFailureCountDoesNotReportRetryAttempts() async {
+    let client = QueryClient()
+    let counter = MutationStateAttemptCounter()
+    let state = MutationState(
+        mutation: Mutation<Int, String>(
+            options: MutationOptions(retry: .count(2), retryDelay: .none)
+        ) { _ in
+            _ = await counter.next()
+            throw MutationStateTestError.failed
+        }
+    )
+
+    state.mutate(1, using: client)
+
+    #expect(await eventuallyOnMainActor { state.result.isError })
+    #expect(state.result.error is MutationStateTestError)
+    #expect(state.result.failureCount == 1)
+    #expect(await counter.value() == 3)
 }
 
 @Test

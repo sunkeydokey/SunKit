@@ -57,6 +57,10 @@ then `onSuccess`, then `onSettled`, and finally returns the output. On failure,
 Core exhausts retries, then runs `onFailure`, then `onSettled`, and finally
 throws the error.
 
+Core mutation execution returns output or throws the final error. Retry-attempt
+counts are not part of the public mutation execution API; SwiftUI mutation UI
+state should render failed mutations from `isError` and `error`.
+
 ## Completion-Based Mutations
 
 Completion-based APIs can be wrapped in the same mutation type:
