@@ -40,14 +40,20 @@ public struct MutationResult<Output: Sendable>: Sendable {
     /// A Boolean value indicating whether the mutation failed.
     public let isError: Bool
 
-    /// The consecutive failure count represented by this result.
+    /// The failure count represented by this result.
+    ///
+    /// `MutationState` uses this value only to mark a failed execution and
+    /// does not expose retry-attempt counts. Check `isError` and `error` when
+    /// rendering mutation failures.
     public let failureCount: Int
 
     /// Creates a mutation result from a status.
     ///
     /// - Parameters:
     ///   - status: The mutation lifecycle status.
-    ///   - failureCount: The failure count for failed results.
+    ///   - failureCount: The failure count for failed results. UI adapters may
+    ///     use `1` as the minimum failed-execution marker instead of reporting
+    ///     retry-attempt counts.
     public init(status: MutationStatus<Output>, failureCount: Int = 0) {
         if case .failure = status {
             precondition(failureCount > 0, "failureCount must be greater than zero for failed mutation results.")

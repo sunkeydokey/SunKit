@@ -129,6 +129,10 @@ object, publishes `.pending`, then publishes success data or failure error on
 the main actor. `reset()` cancels the current task and returns the result to
 idle.
 
+Render mutation failures from `isError` and `error`. `MutationState` does not
+report retry-attempt counts; a failed mutation result uses `failureCount == 1`
+as the minimum failed-execution marker even when Core retried the operation.
+
 ## Deferred Behavior
 
 The SwiftUI adapter does not provide property wrappers. `MutationState` also
