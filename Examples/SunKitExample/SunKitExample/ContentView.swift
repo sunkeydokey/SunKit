@@ -27,6 +27,12 @@ struct ContentView: View {
                 } label: {
                     Label("Mutation", systemImage: "square.and.pencil")
                 }
+
+                NavigationLink {
+                    QueryInvalidationExampleScreen()
+                } label: {
+                    Label("Query Invalidation", systemImage: "arrow.clockwise.circle")
+                }
             }
             .navigationTitle("SunKit")
         }
