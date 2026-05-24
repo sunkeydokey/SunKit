@@ -1016,3 +1016,34 @@ func queryStateEnabledTrueToFalseViaUpdateStopsIntervalTimer() async {
     #expect(countAfterDisable == countAfterStart)
     state.stop()
 }
+
+@Test
+@MainActor
+func queryStateEnabledTrueToFalseViaUpdateStillReceivesCachePublications() async {
+    let client = QueryClient()
+    let rawKey = QueryKey<Int>("swiftui", "enabled-disable-receives")
+    let state = QueryState(
+        key: ["swiftui", "enabled-disable-receives"],
+        options: QueryObserverOptions(
+            enabled: true,
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) { 1 }
+
+    state.start(using: client)
+
+    state.update(
+        key: ["swiftui", "enabled-disable-receives"],
+        using: client,
+        fetch: { 1 },
+        enabled: false
+    )
+
+    // Push data directly into cache — disabled observer should still receive it
+    await client.setQueryData(rawKey, 42)
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 42 })
+    state.stop()
+}
