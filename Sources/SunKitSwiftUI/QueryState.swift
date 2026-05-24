@@ -36,6 +36,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     @ObservationIgnored nonisolated(unsafe) private var pathMonitor: NWPathMonitor?
     @ObservationIgnored nonisolated(unsafe) private var pathMonitorQueue: DispatchQueue?
     @ObservationIgnored private var isObserving = false
+    @ObservationIgnored private var currentEnabled: Bool
     @ObservationIgnored nonisolated(unsafe) private var generation: UInt64 = 0
     @ObservationIgnored private var fetch: @Sendable () async throws -> RawValue
 
@@ -70,6 +71,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
         self.queryOptions = queryOptions
         self.options = options
         self.fetch = fetch
+        self.currentEnabled = options.enabled
     }
 
     deinit {
@@ -286,7 +288,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     }
 
     private func startIntervalTimer(using client: QueryClient) {
-        guard options.enabled, let interval = options.refetchInterval, interval > 0 else { return }
+        guard currentEnabled, let interval = options.refetchInterval, interval > 0 else { return }
         let gen = generation
         intervalTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -345,7 +347,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
         key: QueryKey<RawValue>,
         using client: QueryClient
     ) async -> Bool {
-        guard options.enabled else {
+        guard currentEnabled else {
             return false
         }
 
