@@ -651,16 +651,26 @@ func queryStateDeinitCleansUpAllResources() async {
     weak var weakState = state
     state?.start(using: client)
 
-    // Wait for all triggers to arm
+    // Wait for interval timer, scene observer, and network monitor to arm
     #expect(await eventuallyOnMainActor { state?.result?.data == 1 })
 
-    // Release — deinit must not require a stop() call first
+    // Release without calling stop() — deinit must cancel all resources so
+    // the object is not kept alive by a strong reference in any closure
     state = nil
-
-    // Give any lingering tasks a moment to complete
     try? await Task.sleep(nanoseconds: 100_000_000)
 
-    // If deinit did not clean up, the weak ref may still be retained by a Task/Observer
+    // The weak reference must be nil: if intervalTask, sceneActiveObserver,
+    // or pathMonitor held a strong reference, the object would still be alive
+    #expect(weakState == nil)
+
+    // Verify the scene-active observer was removed: posting the notification
+    // after deallocation must not cause any crash or unexpected side effects
+    NotificationCenter.default.post(
+        name: QueryState<Int>.sceneActiveNotificationName,
+        object: nil
+    )
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    // If we reach here without a crash, the observer was safely cleaned up
     #expect(weakState == nil)
 }
 

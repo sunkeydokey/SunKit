@@ -297,14 +297,16 @@ public final class QueryState<Value: Sendable> {
 
     private func startIntervalTimer(using client: QueryClient) {
         guard let interval = options.refetchInterval, interval > 0 else { return }
+        let gen = generation
         intervalTask = Task { [weak self] in
             while !Task.isCancelled {
                 let nanoseconds = UInt64(interval * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: nanoseconds)
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    guard self?.result?.isFetching != true else { return }
-                    self?.refetch(using: client)
+                    guard let self, self.generation == gen else { return }
+                    guard self.result?.isFetching != true else { return }
+                    self.refetch(using: client)
                 }
             }
         }
