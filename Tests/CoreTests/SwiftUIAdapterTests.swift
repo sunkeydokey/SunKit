@@ -607,3 +607,29 @@ func rapidStartStopStartDoesNotDeliverStaleCallbacks() async {
     #expect(state.result?.data == seen)
     state.stop()
 }
+
+@Test
+@MainActor
+func refetchBeforeSubscriptionSetupCompletesStillReceivesCacheUpdates() async {
+    let client = QueryClient()
+    let key = QueryKey<String>("lifecycle", "refetch-race")
+
+    let state = QueryState(
+        key: ["lifecycle", "refetch-race"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) { "fetched" }
+
+    // start() then immediately refetch() before subscription setup can complete
+    state.start(using: client)
+    state.refetch(using: client)
+
+    // Subscription must eventually be active: a setQueryData must be delivered
+    #expect(await eventuallyOnMainActor { state.result?.data == "fetched" })
+    await client.setQueryData(key, "updated")
+    #expect(await eventuallyOnMainActor { state.result?.data == "updated" })
+    state.stop()
+}

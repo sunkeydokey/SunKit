@@ -28,7 +28,8 @@ public final class QueryState<Value: Sendable> {
     public let options: QueryObserverOptions
 
     @ObservationIgnored private var subscription: QuerySubscription?
-    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var subscriptionTask: Task<Void, Never>?
+    @ObservationIgnored private var fetchTask: Task<Void, Never>?
     @ObservationIgnored private var lastSuccessfulData: Value?
     @ObservationIgnored private var intervalTask: Task<Void, Never>?
     @ObservationIgnored private var sceneActiveObserver: NSObjectProtocol?
@@ -69,7 +70,8 @@ public final class QueryState<Value: Sendable> {
     }
 
     deinit {
-        task?.cancel()
+        subscriptionTask?.cancel()
+        fetchTask?.cancel()
 
         if let subscription {
             Task {
@@ -133,7 +135,7 @@ public final class QueryState<Value: Sendable> {
         let gen = generation
         isObserving = true
 
-        task = Task { [weak self] in
+        subscriptionTask = Task { [weak self] in
             guard let self else { return }
 
             let subscription = await client.subscribe(
@@ -168,10 +170,10 @@ public final class QueryState<Value: Sendable> {
 
     /// Fetches the query again with the provided client.
     public func refetch(using client: QueryClient) {
-        task?.cancel()
+        fetchTask?.cancel()
         let observedKey = key
         let gen = generation
-        task = Task {
+        fetchTask = Task {
             let result = await client.fetchQuery(makeQuery(for: observedKey))
             guard self.generation == gen else { return }
             self.apply(result, for: observedKey)
@@ -189,8 +191,10 @@ public final class QueryState<Value: Sendable> {
         stopSceneActiveObserver()
         stopNetworkMonitor()
         isObserving = false
-        task?.cancel()
-        task = nil
+        subscriptionTask?.cancel()
+        subscriptionTask = nil
+        fetchTask?.cancel()
+        fetchTask = nil
 
         guard let subscription else {
             return
