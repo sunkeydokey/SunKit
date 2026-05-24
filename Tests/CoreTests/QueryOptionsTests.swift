@@ -34,7 +34,7 @@ import Testing
 }
 
 @Test func defaultQueryObserverOptionsMatchPlan() {
-    let options = QueryObserverOptions.default
+    let options = QueryObserverOptions<Int, Int>.default
 
     #expect(options.enabled)
     #expect(options.placeholderData == .none)
@@ -42,16 +42,18 @@ import Testing
     #expect(options.refetchOnSceneActive == .ifStale)
     #expect(options.refetchOnNetworkReconnect == .ifStale)
     #expect(options.refetchInterval == nil)
+    #expect(options.select(1) == 1)
 }
 
 @Test func queryObserverOptionsInitializerStoresValues() {
-    let options = QueryObserverOptions(
+    let options = QueryObserverOptions<Int, String>(
         enabled: false,
         placeholderData: .keepPreviousData,
         refetchOnSubscribe: .always,
         refetchOnSceneActive: .never,
         refetchOnNetworkReconnect: .always,
-        refetchInterval: 15
+        refetchInterval: 15,
+        select: { "\($0)" }
     )
 
     #expect(!options.enabled)
@@ -60,4 +62,5 @@ import Testing
     #expect(options.refetchOnSceneActive == .never)
     #expect(options.refetchOnNetworkReconnect == .always)
     #expect(options.refetchInterval == 15)
+    #expect(options.select(42) == "42")
 }
