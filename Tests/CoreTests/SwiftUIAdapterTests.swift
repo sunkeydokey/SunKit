@@ -547,3 +547,59 @@ func paginatedQueryStateLatePreviousPageResponseDoesNotOverwriteCurrentPage() as
     #expect(state.result?.data == "ios-2")
     state.stop()
 }
+
+@Test
+@MainActor
+func stopPreventsGhostUpdatesFromQueuedCallbacks() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("lifecycle", "ghost")
+    await client.setQueryData(key, 1)
+
+    let state = QueryState(
+        key: ["lifecycle", "ghost"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) { 99 }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+
+    // stop — then immediately mutate cache. The update must NOT reach state.
+    state.stop()
+    await client.setQueryData(key, 2)
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    #expect(state.result?.data == 1)
+}
+
+@Test
+@MainActor
+func rapidStartStopStartDoesNotDeliverStaleCallbacks() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let state = QueryState(
+        key: ["lifecycle", "rapid"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        await counter.next()
+    }
+
+    // Rapid start-stop-start
+    state.start(using: client)
+    state.stop()
+    state.start(using: client)
+
+    #expect(await eventuallyOnMainActor { state.result?.data != nil })
+
+    // Result must reflect only the last start's fetch, not multiple deliveries
+    let seen = state.result?.data
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    #expect(state.result?.data == seen)
+    state.stop()
+}

@@ -35,6 +35,7 @@ public final class QueryState<Value: Sendable> {
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private var pathMonitorQueue: DispatchQueue?
     @ObservationIgnored private var isObserving = false
+    @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var fetch: @Sendable () async throws -> Value
 
     static var sceneActiveNotificationName: Notification.Name {
@@ -129,19 +130,19 @@ public final class QueryState<Value: Sendable> {
 
     private func startCurrentKey(using client: QueryClient) {
         let observedKey = key
+        let gen = generation
         isObserving = true
 
         task = Task { [weak self] in
-            guard let self else {
-                return
-            }
+            guard let self else { return }
 
             let subscription = await client.subscribe(
                 to: observedKey,
                 deliverOn: .main
             ) { [weak state = self] result in
                 Task { @MainActor in
-                    state?.apply(result, for: observedKey)
+                    guard let state, state.generation == gen else { return }
+                    state.apply(result, for: observedKey)
                 }
             }
 
@@ -154,9 +155,11 @@ public final class QueryState<Value: Sendable> {
 
             if options.enabled, options.refetchOnSubscribe != .never {
                 let result = await client.fetchQuery(makeQuery(for: observedKey))
+                guard self.generation == gen else { return }
                 self.apply(result, for: observedKey)
             }
 
+            guard self.generation == gen else { return }
             self.startIntervalTimer(using: client)
             self.startSceneActiveObserver(using: client)
             self.startNetworkMonitor(using: client)
@@ -179,6 +182,7 @@ public final class QueryState<Value: Sendable> {
     /// network-reconnect monitor, and the current subscription. Safe to call
     /// multiple times.
     public func stop() {
+        generation += 1
         stopIntervalTimer()
         stopSceneActiveObserver()
         stopNetworkMonitor()
@@ -198,6 +202,7 @@ public final class QueryState<Value: Sendable> {
 
     private func startSceneActiveObserver(using client: QueryClient) {
         guard options.refetchOnSceneActive != .never else { return }
+        let gen = generation
         sceneActiveObserver = NotificationCenter.default.addObserver(
             forName: Self.sceneActiveNotificationName,
             object: nil,
@@ -205,6 +210,7 @@ public final class QueryState<Value: Sendable> {
         ) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
+                guard self.generation == gen else { return }
                 self.handleSceneActive(using: client)
             }
         }
@@ -233,9 +239,9 @@ public final class QueryState<Value: Sendable> {
 
     private func startNetworkMonitor(using client: QueryClient) {
         guard options.refetchOnNetworkReconnect != .never else { return }
+        let gen = generation
         let monitor = NWPathMonitor()
         let queue = DispatchQueue(label: "sunkit.network-monitor", qos: .utility)
-        // Both vars are accessed exclusively on the monitor's serial queue.
         nonisolated(unsafe) var isFirstUpdate = true
         nonisolated(unsafe) var previouslySatisfied = false
         monitor.pathUpdateHandler = { [weak self] path in
@@ -251,7 +257,8 @@ public final class QueryState<Value: Sendable> {
             }
             previouslySatisfied = true
             Task { @MainActor [weak self] in
-                self?.handleNetworkReconnect(using: client)
+                guard let self, self.generation == gen else { return }
+                self.handleNetworkReconnect(using: client)
             }
         }
         monitor.start(queue: queue)
