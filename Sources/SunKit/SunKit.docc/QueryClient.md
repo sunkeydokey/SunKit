@@ -30,6 +30,15 @@ Successful results become stale according to `defaultCacheOptions.staleTime`.
 For nonzero stale times, `QueryClient` publishes a new result with
 `isStale == true` when the freshness window elapses. Natural staleness does
 not mark the entry invalidated and does not start a refetch by itself.
+Fetch failures also do not invalidate entries by themselves; they publish a
+failure result and keep any existing stale data available. Explicit
+`invalidate(key:)` and `invalidateQueries(_:exact:)` calls are the only APIs
+that mark entries invalidated.
+
+Use `isQueryStale(_:)` when an observer needs to decide whether an `.ifStale`
+trigger should fetch. Missing entries are stale. Existing entries are stale
+when invalidated, when they have no successful update time, or when their
+freshness window has elapsed.
 
 ## Typed Cache Access
 
@@ -40,6 +49,7 @@ different `Value` types are separate cache entries.
 let key = QueryKey<Project>("project", id)
 await client.setQueryData(key, project)
 let cached = await client.getQueryData(key)
+let shouldRefetch = await client.isQueryStale(key)
 ```
 
 Use `updateQueryData` to transform data that is already cached:

@@ -41,6 +41,18 @@ private func eventuallyOnMainActor(_ condition: @escaping @MainActor () -> Bool)
     return false
 }
 
+private func eventually(_ condition: @escaping @Sendable () async -> Bool) async -> Bool {
+    for _ in 0..<50 {
+        if await condition() {
+            return true
+        }
+
+        try? await Task.sleep(nanoseconds: 20_000_000)
+    }
+
+    return false
+}
+
 private var immediateFetchOptions: QueryObserverOptions {
     QueryObserverOptions(
         refetchOnSubscribe: .always,
@@ -90,6 +102,59 @@ func disabledQueryStateDoesNotFetchOnStart() async {
     try? await Task.sleep(nanoseconds: 100_000_000)
 
     #expect(await counter.value() == 0)
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateIfStaleSubscribeDoesNotFetchFreshCachedData() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let key = QueryKey<Int>("swiftui", "if-stale", "fresh")
+    let counter = SwiftUIFetchCounter()
+    await client.setQueryData(key, 42)
+
+    let state = QueryState(
+        key: ["swiftui", "if-stale", "fresh"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .ifStale,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        await counter.next()
+    }
+
+    state.start(using: client)
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 42 })
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    #expect(await counter.value() == 0)
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateIfStaleSubscribeFetchesStaleCachedData() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0))
+    let key = QueryKey<Int>("swiftui", "if-stale", "stale")
+    let counter = SwiftUIFetchCounter()
+    await client.setQueryData(key, 42)
+
+    let state = QueryState(
+        key: ["swiftui", "if-stale", "stale"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .ifStale,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        await counter.next()
+    }
+
+    state.start(using: client)
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+    #expect(await counter.value() == 1)
     state.stop()
 }
 
@@ -218,6 +283,7 @@ func refetchOnSceneActiveAlwaysRefetchesOnNotification() async {
 
     state.start(using: client)
     #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+    try? await Task.sleep(nanoseconds: 20_000_000)
 
     // Simulate scene becoming active
     NotificationCenter.default.post(name: QueryState<Int>.sceneActiveNotificationName, object: nil)
@@ -253,16 +319,36 @@ func networkReconnectNeverPolicyDoesNotRefetch() async {
 
 @Test
 @MainActor
-func queryStateReflectsStaleTimePublication() async {
+func queryStateIgnoresStaleOnlyPublication() async {
     let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0.02))
-    let state = QueryState(key: ["swiftui", "stale-time"]) {
-        1
+    let counter = SwiftUIFetchCounter()
+    let state = QueryState(
+        key: ["swiftui", "stale-time"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .ifStale,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        await counter.next()
     }
 
     state.start(using: client)
 
-    #expect(await eventuallyOnMainActor { state.result?.isStale == false })
-    #expect(await eventuallyOnMainActor { state.result?.isStale == true })
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 && state.result?.isStale == false })
+    let becameStale = await eventually {
+        await client.isQueryStale(QueryKey<Int>("swiftui", "stale-time"))
+    }
+    #expect(becameStale)
+    #expect(state.result?.isStale == false)
+
+    NotificationCenter.default.post(
+        name: QueryState<Int>.sceneActiveNotificationName,
+        object: nil
+    )
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 2 })
+    #expect(await counter.value() == 2)
     state.stop()
 }
 
