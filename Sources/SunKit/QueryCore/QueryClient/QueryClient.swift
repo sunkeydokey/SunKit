@@ -337,9 +337,14 @@ public actor QueryClient {
         }
     }
 
-    /// Removes all cached queries.
+    /// Removes all cached queries and requests cancellation of in-flight fetches.
+    ///
+    /// Cancellation is cooperative. A fetcher may still finish if it does not
+    /// observe task cancellation, but cleared results are not stored or
+    /// published.
     public func clear() async {
         for entry in cache.values {
+            entry.cancelInFlight()
             entry.cancelStaleTimer()
             entry.cancelGCTimer()
         }

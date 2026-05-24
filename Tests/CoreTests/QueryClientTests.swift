@@ -19,6 +19,18 @@ private actor FetchCounter {
     }
 }
 
+private actor CancellationProbe {
+    private var didCancel = false
+
+    func markCancelled() {
+        didCancel = true
+    }
+
+    func value() -> Bool {
+        didCancel
+    }
+}
+
 private final class SyncCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
@@ -168,6 +180,32 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     await client.setQueryData(key, 42)
     await client.clear()
 
+    #expect(await client.getQueryData(key) == nil)
+}
+
+@Test func clearCancelsInFlightFetchAndDoesNotStoreResult() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("value")
+    let probe = CancellationProbe()
+    let query = Query<Int>(key: key, options: QueryOptions(retry: .never)) {
+        do {
+            try await Task.sleep(nanoseconds: 5_000_000_000)
+            return 42
+        } catch is CancellationError {
+            await probe.markCancelled()
+            throw QueryClientTestError.failed
+        }
+    }
+
+    let task = Task {
+        await client.fetchQuery(query)
+    }
+    try? await Task.sleep(nanoseconds: 20_000_000)
+
+    await client.clear()
+    _ = await task.value
+
+    #expect(await eventually { await probe.value() })
     #expect(await client.getQueryData(key) == nil)
 }
 
