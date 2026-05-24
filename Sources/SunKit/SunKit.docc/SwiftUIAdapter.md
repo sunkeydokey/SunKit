@@ -127,6 +127,23 @@ load-more row or scroll sentinel. `pages` and `pageParams` expose the
 accumulated data, `hasNextPage` reflects `getNextPageParam`, and
 `isFetchingNextPage` is scoped to next-page fetches.
 
+`InfiniteQueryState` uses the same observer refetch policies as `QueryState`.
+Scene-active and network-reconnect triggers check the current client stale
+state for `.ifStale`, and `.always` refetches regardless of freshness.
+Natural stale-time transitions do not update `InfiniteQueryState.result` when
+`isStale` is the only changed field.
+
+Use `update(query:using:)` when the same state object should observe a new
+infinite-query declaration, such as after a search term or filter changes. If
+the key is unchanged, the current subscription remains active and future
+refetches use the new query. If the key changes, the state subscribes to the
+new key and starts from `initialPageParam`.
+
+`keepPreviousData` also applies to infinite queries. When enabled, previous
+`pages` and `pageParams` remain visible as observer-local placeholder data
+while a refetch or key change is pending. Placeholder data is not written to
+the `QueryClient` cache.
+
 `refetch(using:)` reloads from `initialPageParam` and replaces accumulated data
 with the first page. The MVP adapter does not fetch previous pages, evict old
 pages, reverse page order, or perform optimistic infinite updates.
