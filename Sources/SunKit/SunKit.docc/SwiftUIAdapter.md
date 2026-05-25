@@ -7,8 +7,10 @@ Use `SunKitSwiftUI` to bind Core query state to SwiftUI views.
 The SwiftUI adapter is intentionally small. It provides an environment value
 for sharing a `QueryClient`, observable `QueryState` for rendering the latest
 `QueryResult`, `QueryObject` for configuring query state from `body`,
-observable `InfiniteQueryState` for rendering accumulated next pages, and
-observable `MutationState` for rendering mutation progress.
+observable `InfiniteQueryState` for rendering accumulated next pages,
+`InfiniteQueryObject` and `PaginatedQueryObject` for modifier-driven page
+queries, `ParallelQueriesState` for one-shot batch results, and observable
+`MutationState` for rendering mutation progress.
 
 ## QueryObject Modifier
 
@@ -175,8 +177,46 @@ while keeping the subscription active.
 
 ## Paginated Queries
 
-Use `PaginatedQueryState` for numbered or page-param based views where input or
-page changes should rebuild the query key while preserving one state object:
+Use `PaginatedQueryObject` with `.paginatedQuery(...)` when the input, key, or
+fetcher depends on state owned by the same view:
+
+```swift
+@State private var searchText = ""
+@State private var submittedSearchText = ""
+
+@PaginatedQueryObject(
+    initialInput: "",
+    initialPage: 1,
+    nextPage: { $0 + 1 },
+    previousPage: { $0 - 1 },
+    canMoveToPreviousPage: { $0 > 1 },
+    options: QueryObserverOptions(refetchOnSubscribe: .always)
+) private var projects: PaginatedQueryState<String, Int, ProjectPage, ProjectPage>
+
+var body: some View {
+    List(projects.result?.data?.items ?? []) { project in
+        ProjectRow(project: project)
+    }
+    .paginatedQuery(
+        $projects,
+        input: submittedSearchText,
+        enabled: !submittedSearchText.isEmpty,
+        key: { searchText, page in
+            ["projects", AnyQueryKeyPart(searchText), AnyQueryKeyPart(page)]
+        }
+    ) { searchText, page in
+        try await api.searchProjects(searchText, page: page)
+    }
+}
+```
+
+The modifier updates the stored state on appearance and when the input, current
+page key, or `enabled` flag changes. Input changes reset to the initial page.
+Page navigation methods keep using the latest key and fetch closures supplied by
+the modifier.
+
+You can also use `PaginatedQueryState` directly when manually managing the
+lifecycle:
 
 ```swift
 @State private var projects = PaginatedQueryState(
@@ -203,8 +243,38 @@ into one result is handled by the separate infinite-query API, not by
 
 ## Infinite Queries
 
-Use `InfiniteQueryState` when the UI should append next pages into one rendered
-sequence:
+Use `InfiniteQueryObject` with `.infiniteQuery(...)` when the infinite query key
+or fetcher depends on state owned by the same view:
+
+```swift
+@InfiniteQueryObject(
+    options: QueryObserverOptions(refetchOnSubscribe: .always)
+) private var repositories: InfiniteQueryState<Int, RepositoryPage, InfiniteData<Int, RepositoryPage>>
+
+var body: some View {
+    List(repositories.pages.flatMap(\.items)) { repository in
+        RepositoryRow(repository: repository)
+    }
+    .infiniteQuery(
+        $repositories,
+        key: ["repositories", AnyQueryKeyPart(searchText)],
+        initialPageParam: 1,
+        enabled: !searchText.isEmpty,
+        getNextPageParam: { lastPage, pages in
+            lastPage.hasMore ? pages.count + 1 : nil
+        }
+    ) { page in
+        try await api.searchRepositories(query: searchText, page: page)
+    }
+}
+```
+
+Call `fetchNextPage(using:)` from a load-more row or scroll sentinel. The
+modifier owns subscription lifecycle and updates the state when the key or
+`enabled` flag changes.
+
+You can also use `InfiniteQueryState` directly when manually managing the
+lifecycle:
 
 ```swift
 @State private var repositories = InfiniteQueryState(
@@ -261,6 +331,35 @@ Infinite query selection transforms the full accumulated raw container:
 
 `hasNextPage` and `fetchNextPage(using:)` still use the raw pages and
 `getNextPageParam`; selected values are for rendering only.
+
+## Parallel Queries
+
+Use `ParallelQueriesObject` with `.parallelQueries(...)` to run a one-shot batch
+from values available in `body`. Parallel batches are not subscriptions; they
+store the latest `ParallelQueryResults` and run again only when the explicit
+token changes or `enabled` transitions to `true`:
+
+```swift
+@ParallelQueriesObject private var dashboard: ParallelQueriesState
+
+var body: some View {
+    DashboardView(results: dashboard.result)
+        .parallelQueries(
+            $dashboard,
+            queries: [
+                AnyParallelQuery(userQuery),
+                AnyParallelQuery(projectsQuery),
+            ],
+            token: dashboardInputToken,
+            enabled: isReady
+        )
+}
+```
+
+`ParallelQueriesState` also exposes public `run(_:using:)` and `cancel()` methods
+for explicit one-shot execution outside the modifier. Batch execution uses
+`QueryClient.fetchQueries(_:)`, so duplicate typed keys, partial failures, and
+in-flight dedupe follow the Core parallel query semantics.
 
 ## Mutations
 

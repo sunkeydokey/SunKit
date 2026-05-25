@@ -1,6 +1,8 @@
 import Observation
 import SunKit
 
+private struct UnconfiguredPaginatedQueryError: Error {}
+
 /// Observable SwiftUI state for page-param based queries.
 ///
 /// `PaginatedQueryState` keeps one state identity while changing the observed
@@ -35,12 +37,13 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
     public let options: QueryObserverOptions<RawValue, SelectedValue>
 
     @ObservationIgnored private let initialPage: Page
-    @ObservationIgnored private let keyBuilder: @Sendable (Input, Page) -> [AnyQueryKeyPart]
-    @ObservationIgnored private let fetch: @Sendable (Input, Page) async throws -> RawValue
+    @ObservationIgnored private var keyBuilder: @Sendable (Input, Page) -> [AnyQueryKeyPart]
+    @ObservationIgnored private var fetch: @Sendable (Input, Page) async throws -> RawValue
     @ObservationIgnored private let nextPageValue: @Sendable (Page) -> Page
     @ObservationIgnored private let previousPageValue: @Sendable (Page) -> Page
     @ObservationIgnored private let canMoveToPreviousPage: @Sendable (Page) -> Bool
     @ObservationIgnored private let queryState: QueryState<RawValue, SelectedValue>
+    @ObservationIgnored private var currentEnabled: Bool
 
     /// Creates observable paginated query state from an async throwing raw-value fetcher.
     ///
@@ -77,6 +80,7 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
         self.previousPageValue = previousPage
         self.canMoveToPreviousPage = canMoveToPreviousPage
         self.fetch = fetch
+        self.currentEnabled = options.enabled
 
         let initialInput = input
         let initialPageValue = initialPage
@@ -87,6 +91,35 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
         ) {
             try await fetch(initialInput, initialPageValue)
         }
+    }
+
+    internal init(
+        placeholderInput: Input,
+        initialPage: Page,
+        queryOptions: QueryOptions? = nil,
+        options: QueryObserverOptions<RawValue, SelectedValue>,
+        nextPage: @escaping @Sendable (Page) -> Page,
+        previousPage: @escaping @Sendable (Page) -> Page,
+        canMoveToPreviousPage: @escaping @Sendable (Page) -> Bool
+    ) {
+        input = placeholderInput
+        page = initialPage
+        self.initialPage = initialPage
+        self.queryOptions = queryOptions
+        self.options = options
+        keyBuilder = { _, _ in [] }
+        fetch = { _, _ in throw UnconfiguredPaginatedQueryError() }
+        nextPageValue = nextPage
+        previousPageValue = previousPage
+        self.canMoveToPreviousPage = canMoveToPreviousPage
+        queryState = QueryState(
+            key: [],
+            queryOptions: queryOptions,
+            options: options
+        ) {
+            throw UnconfiguredPaginatedQueryError()
+        }
+        currentEnabled = options.enabled
     }
 
     /// Starts observing the current input and page with the provided client.
@@ -135,9 +168,33 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
         let currentInput = input
         let currentPage = page
         let fetch = fetch
-        queryState.update(key: keyBuilder(currentInput, currentPage), using: client) {
-            try await fetch(currentInput, currentPage)
+        queryState.update(
+            key: keyBuilder(currentInput, currentPage),
+            using: client,
+            fetch: {
+                try await fetch(currentInput, currentPage)
+            },
+            enabled: currentEnabled
+        )
+    }
+
+    internal func update(
+        input: Input,
+        using client: QueryClient,
+        key: @escaping @Sendable (Input, Page) -> [AnyQueryKeyPart],
+        fetch: @escaping @Sendable (Input, Page) async throws -> RawValue,
+        enabled: Bool = true
+    ) where Input: Hashable {
+        keyBuilder = key
+        self.fetch = fetch
+        currentEnabled = enabled
+
+        if AnyQueryKeyPart(self.input) != AnyQueryKeyPart(input) {
+            self.input = input
+            page = initialPage
         }
+
+        updateQuery(using: client)
     }
 }
 

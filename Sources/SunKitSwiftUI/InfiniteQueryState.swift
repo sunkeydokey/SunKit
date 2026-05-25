@@ -44,12 +44,16 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
             return false
         }
 
+        guard let query else {
+            return false
+        }
+
         return query.getNextPageParam(lastPage, pages) != nil
     }
 
     /// The cache identity observed by this state object.
     public var key: QueryKey<InfiniteData<PageParam, Page>> {
-        query.key
+        query?.key ?? QueryKey([])
     }
 
     /// Observer options used when the state starts.
@@ -59,7 +63,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     /// ``result`` and ``data``.
     public let options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>
 
-    @ObservationIgnored private var query: InfiniteQuery<PageParam, Page>
+    @ObservationIgnored private var query: InfiniteQuery<PageParam, Page>?
     @ObservationIgnored private var rawResult: QueryResult<InfiniteData<PageParam, Page>>?
     @ObservationIgnored nonisolated(unsafe) private var subscription: QuerySubscription?
     @ObservationIgnored nonisolated(unsafe) private var subscriptionTask: Task<Void, Never>?
@@ -94,6 +98,14 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>
     ) {
         self.query = query
+        self.options = options
+        self.currentEnabled = options.enabled
+    }
+
+    internal init(
+        options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>
+    ) {
+        self.query = nil
         self.options = options
         self.currentEnabled = options.enabled
     }
@@ -144,10 +156,10 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         using client: QueryClient,
         enabled: Bool = true
     ) {
-        let previousKey = self.query.key
+        let previousKey = self.query?.key
         self.query = query
 
-        guard query.key == previousKey else {
+        guard previousKey == query.key else {
             currentEnabled = enabled
             stop()
             result = nil
@@ -171,7 +183,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
                 fetchTask = Task { [weak self] in
                     guard let self else { return }
                     if await self.shouldFetch(options.refetchOnSubscribe, key: observedKey, using: client) {
-                        let result = await client.fetchInfiniteQuery(self.query)
+                        let result = await client.fetchInfiniteQuery(query)
                         guard self.generation == gen else { return }
                         self.apply(result, for: observedKey)
                     }
@@ -227,10 +239,13 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     /// pages remain visible as observer-local placeholder data while the
     /// refetch is pending.
     public func refetch(using client: QueryClient) {
+        guard let query else {
+            return
+        }
+
         fetchTask?.cancel()
         let observedKey = query.key
         let gen = generation
-        let query = query
         fetchTask = Task {
             let result = await client.fetchInfiniteQuery(query)
             guard self.generation == gen else { return }
@@ -243,6 +258,10 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     /// Calls made while a next-page fetch is running are ignored by this state
     /// object. Core also deduplicates in-flight work for the same typed key.
     public func fetchNextPage(using client: QueryClient) {
+        guard let query else {
+            return
+        }
+
         guard !isFetchingNextPage, hasNextPage || pages.isEmpty else {
             return
         }
@@ -251,7 +270,6 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         isFetchingNextPage = true
         let observedKey = query.key
         let gen = generation
-        let query = query
         nextPageTask = Task {
             let result = await client.fetchNextPage(query)
             guard self.generation == gen else { return }
@@ -261,6 +279,10 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     }
 
     private func startCurrentKey(using client: QueryClient) {
+        guard let query else {
+            return
+        }
+
         let observedKey = query.key
         let gen = generation
         isObserving = true
@@ -285,7 +307,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
 
             self.subscription = subscription
 
-            if options.enabled,
+            if currentEnabled,
                await self.shouldFetch(options.refetchOnSubscribe, key: observedKey, using: client) {
                 let result = await client.fetchInfiniteQuery(query)
                 guard self.generation == gen else { return }

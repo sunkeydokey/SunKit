@@ -1203,3 +1203,277 @@ func queryStateKeyChangeUsesCurrentEnabledState() async {
     #expect(await eventuallyOnMainActor { state.result?.data == "updated" })
     state.stop()
 }
+
+@Test
+@MainActor
+func infiniteQueryObjectBindingEnabledTransitionStartsFetch() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let queryObject = InfiniteQueryObject<Int, Int, InfiniteData<Int, Int>>(
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    )
+    let state = queryObject.wrappedValue
+    let query = InfiniteQuery<Int, Int>(
+        key: ["infinite-query-object", "enabled"],
+        initialPageParam: 1,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        await counter.next()
+    }
+
+    queryObject.projectedValue.apply(query: query, using: client, enabled: false)
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    #expect(await counter.value() == 0)
+
+    queryObject.projectedValue.apply(query: query, using: client, enabled: true)
+
+    #expect(await eventuallyOnMainActor { state.pages == [1] })
+    #expect(await counter.value() == 1)
+    state.stop()
+}
+
+@Test
+@MainActor
+func infiniteQueryObjectBindingUpdatesKeyAndFetchNextPageUsesLatestQuery() async {
+    let client = QueryClient()
+    let queryObject = InfiniteQueryObject<Int, String, InfiniteData<Int, String>>(
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    )
+    let state = queryObject.wrappedValue
+    let first = InfiniteQuery<Int, String>(
+        key: ["infinite-query-object", "first"],
+        initialPageParam: 1,
+        getNextPageParam: { _, pages in pages.count == 1 ? 2 : nil }
+    ) { page in
+        "first-\(page)"
+    }
+    let second = InfiniteQuery<Int, String>(
+        key: ["infinite-query-object", "second"],
+        initialPageParam: 1,
+        getNextPageParam: { _, pages in pages.count == 1 ? 2 : nil }
+    ) { page in
+        "second-\(page)"
+    }
+
+    queryObject.projectedValue.apply(query: first, using: client, enabled: true)
+    #expect(await eventuallyOnMainActor { state.pages == ["first-1"] })
+
+    queryObject.projectedValue.apply(query: second, using: client, enabled: true)
+    #expect(await eventuallyOnMainActor { state.pages == ["second-1"] })
+
+    state.fetchNextPage(using: client)
+    #expect(await eventuallyOnMainActor { state.pages == ["second-1", "second-2"] })
+    state.stop()
+}
+
+@Test
+@MainActor
+func paginatedQueryObjectBindingEnabledTransitionStartsFetch() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let queryObject = PaginatedQueryObject<String, Int, Int, Int>(
+        initialInput: "first",
+        initialPage: 1,
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        ),
+        nextPage: { $0 + 1 },
+        previousPage: { $0 - 1 },
+        canMoveToPreviousPage: { $0 > 1 }
+    )
+    let state = queryObject.wrappedValue
+
+    queryObject.projectedValue.apply(
+        input: "first",
+        using: client,
+        key: { input, page in ["paginated-query-object", AnyQueryKeyPart(input), AnyQueryKeyPart(page)] },
+        fetch: { _, _ in await counter.next() },
+        enabled: false
+    )
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    #expect(await counter.value() == 0)
+
+    queryObject.projectedValue.apply(
+        input: "first",
+        using: client,
+        key: { input, page in ["paginated-query-object", AnyQueryKeyPart(input), AnyQueryKeyPart(page)] },
+        fetch: { _, _ in await counter.next() },
+        enabled: true
+    )
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+    #expect(await counter.value() == 1)
+    state.stop()
+}
+
+@Test
+@MainActor
+func paginatedQueryObjectBindingInputChangeResetsPageAndUsesLatestFetcher() async {
+    let client = QueryClient()
+    let queryObject = PaginatedQueryObject<String, Int, String, String>(
+        initialInput: "one",
+        initialPage: 1,
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        ),
+        nextPage: { $0 + 1 },
+        previousPage: { $0 - 1 },
+        canMoveToPreviousPage: { $0 > 1 }
+    )
+    let state = queryObject.wrappedValue
+    let key: @Sendable (String, Int) -> [AnyQueryKeyPart] = { input, page in
+        ["paginated-query-object", AnyQueryKeyPart(input), AnyQueryKeyPart(page)]
+    }
+
+    queryObject.projectedValue.apply(
+        input: "one",
+        using: client,
+        key: key,
+        fetch: { input, page in "\(input)-\(page)" },
+        enabled: true
+    )
+    #expect(await eventuallyOnMainActor { state.result?.data == "one-1" })
+
+    state.nextPage(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == "one-2" })
+
+    queryObject.projectedValue.apply(
+        input: "two",
+        using: client,
+        key: key,
+        fetch: { input, page in "\(input)-latest-\(page)" },
+        enabled: true
+    )
+
+    #expect(state.page == 1)
+    #expect(await eventuallyOnMainActor { state.result?.data == "two-latest-1" })
+    state.stop()
+}
+
+@Test
+@MainActor
+func paginatedQueryObjectNavigationKeepsDisabledState() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let queryObject = PaginatedQueryObject<String, Int, Int, Int>(
+        initialInput: "value",
+        initialPage: 1,
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        ),
+        nextPage: { $0 + 1 },
+        previousPage: { $0 - 1 },
+        canMoveToPreviousPage: { $0 > 1 }
+    )
+    let state = queryObject.wrappedValue
+
+    queryObject.projectedValue.apply(
+        input: "value",
+        using: client,
+        key: { input, page in ["paginated-query-object", "disabled-page", AnyQueryKeyPart(input), AnyQueryKeyPart(page)] },
+        fetch: { _, _ in await counter.next() },
+        enabled: false
+    )
+    state.nextPage(using: client)
+    try? await Task.sleep(nanoseconds: 50_000_000)
+
+    #expect(state.page == 2)
+    #expect(await counter.value() == 0)
+
+    queryObject.projectedValue.apply(
+        input: "value",
+        using: client,
+        key: { input, page in ["paginated-query-object", "disabled-page", AnyQueryKeyPart(input), AnyQueryKeyPart(page)] },
+        fetch: { _, _ in await counter.next() },
+        enabled: true
+    )
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+    #expect(await counter.value() == 1)
+    state.stop()
+}
+
+@Test
+@MainActor
+func parallelQueriesStateRunsBatchAndStoresTypedResults() async {
+    let client = QueryClient()
+    let state = ParallelQueriesState()
+    let intKey = QueryKey<Int>("parallel-object", "int")
+    let stringKey = QueryKey<String>("parallel-object", "string")
+
+    state.run(
+        [
+            AnyParallelQuery(Query(key: intKey) { 1 }),
+            AnyParallelQuery(Query(key: stringKey) { "value" }),
+        ],
+        using: client
+    )
+
+    #expect(await eventuallyOnMainActor { state.result?[intKey]?.data == 1 })
+    #expect(state.result?[stringKey]?.data == "value")
+    #expect(!state.isFetching)
+}
+
+@Test
+@MainActor
+func parallelQueriesBindingEnabledFalseSuppressesRun() async {
+    let client = QueryClient()
+    let queryObject = ParallelQueriesObject()
+    let state = queryObject.wrappedValue
+    let key = QueryKey<Int>("parallel-object", "disabled")
+
+    queryObject.projectedValue.run(
+        [AnyParallelQuery(Query(key: key) { 1 })],
+        using: client,
+        enabled: false
+    )
+    try? await Task.sleep(nanoseconds: 50_000_000)
+
+    #expect(state.result == nil)
+    #expect(!state.isFetching)
+
+    queryObject.projectedValue.run(
+        [AnyParallelQuery(Query(key: key) { 1 })],
+        using: client,
+        enabled: true
+    )
+
+    #expect(await eventuallyOnMainActor { state.result?[key]?.data == 1 })
+}
+
+@Test
+@MainActor
+func parallelQueriesStateCancelPreventsStaleResult() async {
+    let client = QueryClient()
+    let state = ParallelQueriesState()
+    let key = QueryKey<Int>("parallel-object", "cancel")
+
+    state.run(
+        [
+            AnyParallelQuery(Query(key: key) {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                return 1
+            }),
+        ],
+        using: client
+    )
+    state.cancel()
+    try? await Task.sleep(nanoseconds: 150_000_000)
+
+    #expect(state.result == nil)
+    #expect(!state.isFetching)
+}
