@@ -26,6 +26,7 @@ mutation execution through `QueryClient`.
 - <doc:QueryOptions>
 - <doc:Queries>
 - <doc:QueryClient>
+- <doc:ParallelQueries>
 - <doc:InFlightDedupe>
 - <doc:Invalidation>
 - <doc:Subscriptions>

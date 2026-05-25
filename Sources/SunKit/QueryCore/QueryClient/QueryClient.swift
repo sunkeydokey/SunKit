@@ -77,6 +77,46 @@ public actor QueryClient {
         return result
     }
 
+    /// Fetches heterogeneous queries concurrently and returns typed lookup results.
+    ///
+    /// Each unique query executes through ``fetchQuery(_:)``, so normal cache
+    /// writes, retries, stale state, `lastQuery`, invalidation refetch behavior,
+    /// and in-flight deduplication remain unchanged. Duplicate typed keys in
+    /// the same batch are deterministic: the first query wins and later
+    /// duplicates are skipped before execution.
+    ///
+    /// The returned batch can contain both successes and failures. A failed
+    /// query is represented by its own `QueryResult.failure`; this method does
+    /// not throw. This is Swift concurrency convenience, not HTTP batching.
+    @discardableResult
+    public func fetchQueries(_ queries: [AnyParallelQuery]) async -> ParallelQueryResults {
+        var seen = Set<QueryCacheID>()
+        var uniqueQueries: [AnyParallelQuery] = []
+
+        for query in queries where seen.insert(query.id).inserted {
+            uniqueQueries.append(query)
+        }
+
+        guard !uniqueQueries.isEmpty else {
+            return ParallelQueryResults(storage: [:])
+        }
+
+        var storage: [QueryCacheID: any AnyParallelQueryResultBox] = [:]
+        await withTaskGroup(of: ParallelQueryExecutionResult.self) { group in
+            for query in uniqueQueries {
+                group.addTask {
+                    await query.execute(self)
+                }
+            }
+
+            for await result in group {
+                storage[result.id] = result.result
+            }
+        }
+
+        return ParallelQueryResults(storage: storage)
+    }
+
     /// Fetches the first page of an infinite query and stores accumulated data.
     ///
     /// The MVP infinite-query model refetches from `initialPageParam` and
