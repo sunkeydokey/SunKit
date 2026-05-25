@@ -199,7 +199,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
 
             self.subscription = subscription
 
-            if options.enabled,
+            if currentEnabled,
                await self.shouldFetch(options.refetchOnSubscribe, key: observedKey, using: client) {
                 let result = await client.fetchQuery(makeQuery(for: observedKey))
                 guard self.generation == gen else { return }

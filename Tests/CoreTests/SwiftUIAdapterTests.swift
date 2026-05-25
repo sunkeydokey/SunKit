@@ -1085,3 +1085,121 @@ func infiniteQueryStateEnabledFalseToTrueViaUpdateStartsFetch() async {
     #expect(await counter.value() == 1)
     state.stop()
 }
+
+// MARK: - QueryObject tests
+
+@Test
+@MainActor
+func queryObjectBindingConfiguresAndFetchesState() async {
+    let client = QueryClient()
+    let queryObject = QueryObject<String, String>(
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    )
+    let state = queryObject.wrappedValue
+
+    queryObject.projectedValue.apply(
+        key: ["query-object", "basic"],
+        using: client,
+        fetch: { "value" },
+        enabled: true
+    )
+
+    #expect(await eventuallyOnMainActor { state.result?.data == "value" })
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryObjectBindingUpdatesKeyAndFetcher() async {
+    let client = QueryClient()
+    let queryObject = QueryObject<String, String>(
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    )
+    let state = queryObject.wrappedValue
+
+    queryObject.projectedValue.apply(
+        key: ["query-object", "first"],
+        using: client,
+        fetch: { "first" },
+        enabled: true
+    )
+    #expect(await eventuallyOnMainActor { state.result?.data == "first" })
+
+    queryObject.projectedValue.apply(
+        key: ["query-object", "second"],
+        using: client,
+        fetch: { "second" },
+        enabled: true
+    )
+
+    #expect(await eventuallyOnMainActor { state.result?.data == "second" })
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryObjectBindingEnabledTransitionStartsFetchForSameKey() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let queryObject = QueryObject<Int, Int>(
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    )
+    let state = queryObject.wrappedValue
+
+    queryObject.projectedValue.apply(
+        key: ["query-object", "enabled"],
+        using: client,
+        fetch: { await counter.next() },
+        enabled: false
+    )
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    #expect(await counter.value() == 0)
+
+    queryObject.projectedValue.apply(
+        key: ["query-object", "enabled"],
+        using: client,
+        fetch: { await counter.next() },
+        enabled: true
+    )
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+    #expect(await counter.value() == 1)
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateKeyChangeUsesCurrentEnabledState() async {
+    let client = QueryClient()
+    let state = QueryState<String, String>(
+        key: ["swiftui", "current-enabled", "initial"],
+        options: QueryObserverOptions(
+            enabled: false,
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) { "initial" }
+
+    state.update(
+        key: ["swiftui", "current-enabled", "updated"],
+        using: client,
+        fetch: { "updated" },
+        enabled: true
+    )
+
+    #expect(await eventuallyOnMainActor { state.result?.data == "updated" })
+    state.stop()
+}

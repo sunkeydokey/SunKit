@@ -6,8 +6,54 @@ Use `SunKitSwiftUI` to bind Core query state to SwiftUI views.
 
 The SwiftUI adapter is intentionally small. It provides an environment value
 for sharing a `QueryClient`, observable `QueryState` for rendering the latest
-`QueryResult`, observable `InfiniteQueryState` for rendering accumulated next
-pages, and observable `MutationState` for rendering mutation progress.
+`QueryResult`, `QueryObject` for configuring query state from `body`,
+observable `InfiniteQueryState` for rendering accumulated next pages, and
+observable `MutationState` for rendering mutation progress.
+
+## QueryObject Modifier
+
+Use `QueryObject` with the `.query(...)` modifier when a query key or fetcher
+depends on state owned by the same view. The property wrapper owns the
+`QueryState` engine, and the modifier supplies dynamic values from `body`:
+
+```swift
+struct FollowersView: View {
+    @State private var username = ""
+    @QueryObject(
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) private var followers: QueryState<[GitHubUser], [GitHubUser]>
+
+    private var trimmedUsername: String {
+        username.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        List(followers.result?.data ?? []) { user in
+            FollowerRow(user: user)
+        }
+        .query(
+            $followers,
+            key: ["github", "followers", AnyQueryKeyPart(trimmedUsername)],
+            enabled: !trimmedUsername.isEmpty
+        ) { [trimmed = trimmedUsername] in
+            guard !trimmed.isEmpty else { return [] }
+            return try await GitHubAPI.followers(username: trimmed)
+        }
+    }
+}
+```
+
+The `.query(...)` modifier reads `\.queryClient`, updates the stored state on
+appearance, updates it again when the key or `enabled` flag changes, and stops
+the state on disappearance. `QueryObject` options are static for the lifetime of
+the stored state; pass dynamic fetch gating through the modifier's `enabled`
+parameter.
+
+## Direct QueryState
 
 Store `QueryState` with SwiftUI `@State` so the view owns the query lifecycle.
 `QueryState` stores the key and fetcher, then creates executable Core queries
@@ -69,9 +115,10 @@ failures, and `keepPreviousData` placeholders.
 
 ## Dynamic Keys
 
-Use `update(key:using:fetch:)` when the same SwiftUI state object should observe
-a different cache key, such as after a search term, filter, or page value
-changes:
+Use `QueryObject` and `.query(...)` for dynamic keys driven by state in the same
+view. If you manage lifecycle manually, call `update(key:using:fetch:)` when the
+same SwiftUI state object should observe a different cache key, such as after a
+search term, filter, or page value changes:
 
 ```swift
 .onChange(of: searchText) { _, searchText in
@@ -249,7 +296,6 @@ as the minimum failed-execution marker even when Core retried the operation.
 
 ## Deferred Behavior
 
-The SwiftUI adapter does not provide property wrappers. `MutationState` also
-does not implement optimistic updates, mutation deduplication, mutation cache
-storage, or automatic query invalidation. Use Core callbacks and cache APIs
-directly when mutation success should update related query data.
+`MutationState` does not implement optimistic updates, mutation deduplication,
+mutation cache storage, or automatic query invalidation. Use Core callbacks and
+cache APIs directly when mutation success should update related query data.
