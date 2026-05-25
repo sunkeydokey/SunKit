@@ -49,6 +49,45 @@ private final class SyncCounter: @unchecked Sendable {
     }
 }
 
+private actor ParallelGate {
+    private var started = 0
+    private var released = false
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+
+    func arriveAndWait() async {
+        started += 1
+        guard !released else { return }
+        await withCheckedContinuation { continuation in
+            releaseContinuations.append(continuation)
+        }
+    }
+
+    func startedCount() -> Int {
+        started
+    }
+
+    func releaseAll() {
+        released = true
+        let continuations = releaseContinuations
+        releaseContinuations = []
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+}
+
+private actor StartProbe {
+    private var didStart = false
+
+    func markStarted() {
+        didStart = true
+    }
+
+    func value() -> Bool {
+        didStart
+    }
+}
+
 private func eventually(_ condition: @escaping @Sendable () async -> Bool) async -> Bool {
     for _ in 0..<50 {
         if await condition() {
@@ -219,6 +258,147 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     #expect(result.data == 42)
     #expect(result.isSuccess)
     #expect(await client.getQueryData(key) == 42)
+}
+
+@Test func fetchQueriesReturnsHeterogeneousResultsByTypedKey() async {
+    let client = QueryClient()
+    let userKey = QueryKey<Int>("parallel-user")
+    let projectsKey = QueryKey<[String]>("parallel-projects")
+    let userQuery = Query(key: userKey) { 1 }
+    let projectsQuery = Query(key: projectsKey) { ["SunKit"] }
+
+    let results = await client.fetchQueries([
+        AnyParallelQuery(userQuery),
+        AnyParallelQuery(projectsQuery),
+    ])
+
+    #expect(results[userKey]?.data == 1)
+    #expect(results[projectsKey]?.data == ["SunKit"])
+    #expect(results[QueryKey<String>("missing")] == nil)
+}
+
+@Test func fetchQueriesRunsQueriesConcurrently() async {
+    let client = QueryClient()
+    let gate = ParallelGate()
+    let firstKey = QueryKey<Int>("parallel-concurrent", 1)
+    let secondKey = QueryKey<Int>("parallel-concurrent", 2)
+    let firstQuery = Query(key: firstKey) {
+        await gate.arriveAndWait()
+        return 1
+    }
+    let secondQuery = Query(key: secondKey) {
+        await gate.arriveAndWait()
+        return 2
+    }
+
+    let task = Task {
+        await client.fetchQueries([
+            AnyParallelQuery(firstQuery),
+            AnyParallelQuery(secondQuery),
+        ])
+    }
+
+    #expect(await eventually { await gate.startedCount() == 2 })
+    await gate.releaseAll()
+    let results = await task.value
+
+    #expect(results[firstKey]?.data == 1)
+    #expect(results[secondKey]?.data == 2)
+}
+
+@Test func fetchQueriesReturnsPartialFailuresIndependently() async {
+    let client = QueryClient()
+    let successKey = QueryKey<Int>("parallel-partial-success")
+    let failureKey = QueryKey<String>("parallel-partial-failure")
+    let successQuery = Query(key: successKey) { 42 }
+    let failureQuery = Query(key: failureKey, options: QueryOptions(retry: .never)) {
+        throw QueryClientTestError.failed
+    }
+
+    let results = await client.fetchQueries([
+        AnyParallelQuery(successQuery),
+        AnyParallelQuery(failureQuery),
+    ])
+
+    #expect(results[successKey]?.data == 42)
+    #expect(results[successKey]?.isSuccess == true)
+    #expect(results[failureKey]?.isError == true)
+    #expect(results[failureKey]?.error is QueryClientTestError)
+}
+
+@Test func fetchQueriesDuplicateTypedKeysUseFirstQueryOnly() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("parallel-duplicate")
+    let firstCounter = FetchCounter()
+    let secondCounter = FetchCounter()
+    let firstQuery = Query(key: key) {
+        await firstCounter.next()
+    }
+    let secondQuery = Query(key: key) {
+        _ = await secondCounter.next()
+        return 2
+    }
+
+    let results = await client.fetchQueries([
+        AnyParallelQuery(firstQuery),
+        AnyParallelQuery(secondQuery),
+    ])
+
+    #expect(results[key]?.data == 1)
+    #expect(await firstCounter.value() == 1)
+    #expect(await secondCounter.value() == 0)
+}
+
+@Test func fetchQueriesSeparatesSameRawKeyWithDifferentValueTypes() async {
+    let client = QueryClient()
+    let intKey = QueryKey<Int>("parallel-same-raw")
+    let stringKey = QueryKey<String>("parallel-same-raw")
+    let intQuery = Query(key: intKey) { 7 }
+    let stringQuery = Query(key: stringKey) { "seven" }
+
+    let results = await client.fetchQueries([
+        AnyParallelQuery(intQuery),
+        AnyParallelQuery(stringQuery),
+    ])
+
+    #expect(results[intKey]?.data == 7)
+    #expect(results[stringKey]?.data == "seven")
+}
+
+@Test func fetchQueriesUsesExistingInFlightDedupe() async {
+    let client = QueryClient()
+    let key = QueryKey<Int>("parallel-dedupe")
+    let firstCounter = FetchCounter()
+    let secondCounter = FetchCounter()
+    let startProbe = StartProbe()
+    let firstQuery = Query(key: key) {
+        await startProbe.markStarted()
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        return await firstCounter.next()
+    }
+    let secondQuery = Query(key: key) {
+        _ = await secondCounter.next()
+        return 2
+    }
+
+    async let firstResult = client.fetchQuery(firstQuery)
+    #expect(await eventually { await startProbe.value() })
+    let batchResults = await client.fetchQueries([
+        AnyParallelQuery(secondQuery)
+    ])
+    let directResult = await firstResult
+
+    #expect(directResult.data == 1)
+    #expect(batchResults[key]?.data == 1)
+    #expect(await firstCounter.value() == 1)
+    #expect(await secondCounter.value() == 0)
+}
+
+@Test func fetchQueriesEmptyInputReturnsEmptyResults() async {
+    let client = QueryClient()
+    let results = await client.fetchQueries([])
+
+    #expect(results[QueryKey<Int>("missing")] == nil)
 }
 
 @Test func ensureQueryDataReturnsFreshCachedData() async throws {

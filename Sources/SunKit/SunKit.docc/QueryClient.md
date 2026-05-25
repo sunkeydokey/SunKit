@@ -71,3 +71,28 @@ only performed through `invalidate(key:)` and
 timers, and requests cancellation of in-flight fetch tasks. Cancellation is
 cooperative: a fetcher may still finish if it ignores task cancellation, but
 cleared results are not stored or published.
+
+## Parallel Queries
+
+Use `fetchQueries(_:)` to fetch heterogeneous `Query` values concurrently
+without tuple overloads or user-visible casting:
+
+```swift
+let results = await client.fetchQueries([
+    AnyParallelQuery(userQuery),
+    AnyParallelQuery(projectsQuery),
+])
+
+let user = results[userQuery.key]
+let projects = results[projectsQuery.key]
+```
+
+Parallel Queries are not HTTP batching. Each unique query still runs through
+`fetchQuery(_:)`, so cache writes, retries, stale state, in-flight
+deduplication, subscriptions, and later invalidation refetch behavior are the
+same as single-query execution.
+
+The batch itself does not throw. A failed query is returned as a failed
+`QueryResult` for that key while other query results remain available.
+Duplicate typed keys in one batch use first-wins semantics. `InfiniteQuery`
+batching is not part of v0.1.
