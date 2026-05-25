@@ -3,22 +3,21 @@ import SunKit
 import SunKitSwiftUI
 
 struct EnabledExampleScreen: View {
-    @Environment(\.queryClient) private var client
-
     @State private var username = ""
-    @State private var followers = QueryState<[GitHubUser], [GitHubUser]>(
-        key: ["github", "followers", "enabled", ""],
+
+    @QueryBinding(
         options: QueryObserverOptions(
-            enabled: false,
             refetchOnSubscribe: .always,
             refetchOnSceneActive: .never,
             refetchOnNetworkReconnect: .never
         )
-    ) {
-        []
+    ) private var followers: QueryState<[GitHubUser], [GitHubUser]>
+
+    private var trimmedUsername: String {
+        username.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var isEnabled: Bool { !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var isEnabled: Bool { !trimmedUsername.isEmpty }
 
     var body: some View {
         ScrollView {
@@ -45,7 +44,6 @@ struct EnabledExampleScreen: View {
                     .textFieldStyle(.roundedBorder)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                    .onSubmit(search)
 
                 if !isEnabled {
                     Label("username을 입력하면 자동으로 fetch가 시작됩니다.", systemImage: "info.circle")
@@ -78,24 +76,13 @@ struct EnabledExampleScreen: View {
             .padding()
         }
         .navigationTitle("Enabled")
-        .onAppear {
-            followers.start(using: client)
+        .query(
+            $followers,
+            key: ["github", "followers", "enabled", AnyQueryKeyPart(trimmedUsername)],
+            enabled: !trimmedUsername.isEmpty
+        ) { [trimmed = trimmedUsername] in
+            guard !trimmed.isEmpty else { return [] }
+            return try await GitHubAPI.followers(username: trimmed)
         }
-        .onDisappear {
-            followers.stop()
-        }
-    }
-
-    private func search() {
-        let trimmed = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        followers.update(
-            key: ["github", "followers", "enabled", AnyQueryKeyPart(trimmed)],
-            using: client,
-            fetch: {
-                guard !trimmed.isEmpty else { return [] }
-                return try await GitHubAPI.followers(username: trimmed)
-            },
-            enabled: !trimmed.isEmpty
-        )
     }
 }

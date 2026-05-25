@@ -6,8 +6,56 @@ Use `SunKitSwiftUI` to bind Core query state to SwiftUI views.
 
 The SwiftUI adapter is intentionally small. It provides an environment value
 for sharing a `QueryClient`, observable `QueryState` for rendering the latest
-`QueryResult`, observable `InfiniteQueryState` for rendering accumulated next
-pages, and observable `MutationState` for rendering mutation progress.
+`QueryResult`, `QueryBinding` for configuring query state from `body`,
+observable `InfiniteQueryState` for rendering accumulated next pages,
+`InfiniteQueryBinding` and `PaginatedQueryBinding` for modifier-driven page
+queries, `ParallelQueriesState` for one-shot batch results, and observable
+`MutationState` for rendering mutation progress.
+
+## QueryBinding Modifier
+
+Use `QueryBinding` with the `.query(...)` modifier when a query key or fetcher
+depends on state owned by the same view. The property wrapper owns the
+`QueryState` engine, and the modifier supplies dynamic values from `body`:
+
+```swift
+struct FollowersView: View {
+    @State private var username = ""
+    @QueryBinding(
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) private var followers: QueryState<[GitHubUser], [GitHubUser]>
+
+    private var trimmedUsername: String {
+        username.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        List(followers.result?.data ?? []) { user in
+            FollowerRow(user: user)
+        }
+        .query(
+            $followers,
+            key: ["github", "followers", AnyQueryKeyPart(trimmedUsername)],
+            enabled: !trimmedUsername.isEmpty
+        ) { [trimmed = trimmedUsername] in
+            guard !trimmed.isEmpty else { return [] }
+            return try await GitHubAPI.followers(username: trimmed)
+        }
+    }
+}
+```
+
+The `.query(...)` modifier reads `\.queryClient`, updates the stored state on
+appearance, updates it again when the key or `enabled` flag changes, and stops
+the state on disappearance. `QueryBinding` options are static for the lifetime of
+the stored state; pass dynamic fetch gating through the modifier's `enabled`
+parameter.
+
+## Direct QueryState
 
 Store `QueryState` with SwiftUI `@State` so the view owns the query lifecycle.
 `QueryState` stores the key and fetcher, then creates executable Core queries
@@ -69,9 +117,10 @@ failures, and `keepPreviousData` placeholders.
 
 ## Dynamic Keys
 
-Use `update(key:using:fetch:)` when the same SwiftUI state object should observe
-a different cache key, such as after a search term, filter, or page value
-changes:
+Use `QueryBinding` and `.query(...)` for dynamic keys driven by state in the same
+view. If you manage lifecycle manually, call `update(key:using:fetch:)` when the
+same SwiftUI state object should observe a different cache key, such as after a
+search term, filter, or page value changes:
 
 ```swift
 .onChange(of: searchText) { _, searchText in
@@ -128,8 +177,46 @@ while keeping the subscription active.
 
 ## Paginated Queries
 
-Use `PaginatedQueryState` for numbered or page-param based views where input or
-page changes should rebuild the query key while preserving one state object:
+Use `PaginatedQueryBinding` with `.paginatedQuery(...)` when the input, key, or
+fetcher depends on state owned by the same view:
+
+```swift
+@State private var searchText = ""
+@State private var submittedSearchText = ""
+
+@PaginatedQueryBinding(
+    initialInput: "",
+    initialPage: 1,
+    nextPage: { $0 + 1 },
+    previousPage: { $0 - 1 },
+    canMoveToPreviousPage: { $0 > 1 },
+    options: QueryObserverOptions(refetchOnSubscribe: .always)
+) private var projects: PaginatedQueryState<String, Int, ProjectPage, ProjectPage>
+
+var body: some View {
+    List(projects.result?.data?.items ?? []) { project in
+        ProjectRow(project: project)
+    }
+    .paginatedQuery(
+        $projects,
+        input: submittedSearchText,
+        enabled: !submittedSearchText.isEmpty,
+        key: { searchText, page in
+            ["projects", AnyQueryKeyPart(searchText), AnyQueryKeyPart(page)]
+        }
+    ) { searchText, page in
+        try await api.searchProjects(searchText, page: page)
+    }
+}
+```
+
+The modifier updates the stored state on appearance and when the input, current
+page key, or `enabled` flag changes. Input changes reset to the initial page.
+Page navigation methods keep using the latest key and fetch closures supplied by
+the modifier.
+
+You can also use `PaginatedQueryState` directly when manually managing the
+lifecycle:
 
 ```swift
 @State private var projects = PaginatedQueryState(
@@ -156,8 +243,38 @@ into one result is handled by the separate infinite-query API, not by
 
 ## Infinite Queries
 
-Use `InfiniteQueryState` when the UI should append next pages into one rendered
-sequence:
+Use `InfiniteQueryBinding` with `.infiniteQuery(...)` when the infinite query key
+or fetcher depends on state owned by the same view:
+
+```swift
+@InfiniteQueryBinding(
+    options: QueryObserverOptions(refetchOnSubscribe: .always)
+) private var repositories: InfiniteQueryState<Int, RepositoryPage, InfiniteData<Int, RepositoryPage>>
+
+var body: some View {
+    List(repositories.pages.flatMap(\.items)) { repository in
+        RepositoryRow(repository: repository)
+    }
+    .infiniteQuery(
+        $repositories,
+        key: ["repositories", AnyQueryKeyPart(searchText)],
+        initialPageParam: 1,
+        enabled: !searchText.isEmpty,
+        getNextPageParam: { lastPage, pages in
+            lastPage.hasMore ? pages.count + 1 : nil
+        }
+    ) { page in
+        try await api.searchRepositories(query: searchText, page: page)
+    }
+}
+```
+
+Call `fetchNextPage(using:)` from a load-more row or scroll sentinel. The
+modifier owns subscription lifecycle and updates the state when the key or
+`enabled` flag changes.
+
+You can also use `InfiniteQueryState` directly when manually managing the
+lifecycle:
 
 ```swift
 @State private var repositories = InfiniteQueryState(
@@ -215,6 +332,35 @@ Infinite query selection transforms the full accumulated raw container:
 `hasNextPage` and `fetchNextPage(using:)` still use the raw pages and
 `getNextPageParam`; selected values are for rendering only.
 
+## Parallel Queries
+
+Use `ParallelQueriesBinding` with `.parallelQueries(...)` to run a one-shot batch
+from values available in `body`. Parallel batches are not subscriptions; they
+store the latest `ParallelQueryResults` and run again only when the explicit
+token changes or `enabled` transitions to `true`:
+
+```swift
+@ParallelQueriesBinding private var dashboard: ParallelQueriesState
+
+var body: some View {
+    DashboardView(results: dashboard.result)
+        .parallelQueries(
+            $dashboard,
+            queries: [
+                AnyParallelQuery(userQuery),
+                AnyParallelQuery(projectsQuery),
+            ],
+            token: dashboardInputToken,
+            enabled: isReady
+        )
+}
+```
+
+Batch execution is configured through `.parallelQueries(...)`; the observable
+state exposes results and fetching status for rendering. Execution uses
+`QueryClient.fetchQueries(_:)`, so duplicate typed keys, partial failures, and
+in-flight dedupe follow the Core parallel query semantics.
+
 ## Mutations
 
 Store `MutationState` with SwiftUI `@State`, then call `mutate(_:using:)` from
@@ -249,7 +395,6 @@ as the minimum failed-execution marker even when Core retried the operation.
 
 ## Deferred Behavior
 
-The SwiftUI adapter does not provide property wrappers. `MutationState` also
-does not implement optimistic updates, mutation deduplication, mutation cache
-storage, or automatic query invalidation. Use Core callbacks and cache APIs
-directly when mutation success should update related query data.
+`MutationState` does not implement optimistic updates, mutation deduplication,
+mutation cache storage, or automatic query invalidation. Use Core callbacks and
+cache APIs directly when mutation success should update related query data.

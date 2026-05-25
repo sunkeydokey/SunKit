@@ -23,6 +23,12 @@ struct ContentView: View {
                 }
 
                 NavigationLink {
+                    ParallelQueriesBindingModifierExampleScreen()
+                } label: {
+                    Label("Parallel Queries", systemImage: "rectangle.stack")
+                }
+
+                NavigationLink {
                     SelectExampleScreen()
                 } label: {
                     Label("Select", systemImage: "line.3.horizontal.decrease.circle")

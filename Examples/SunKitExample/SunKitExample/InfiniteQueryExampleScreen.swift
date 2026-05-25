@@ -7,18 +7,7 @@ struct InfiniteQueryExampleScreen: View {
 
     private let queryText = "swift language:swift"
 
-    @State private var repositories = InfiniteQueryState(
-        query: InfiniteQuery<Int, GitHubRepositorySearchPage>(
-            key: ["github", "repositories", "infinite", "swift language:swift"],
-            initialPageParam: 1,
-            getNextPageParam: { lastPage, pages in
-                let loadedCount = pages.count * GitHubAPI.repositoriesPerPage
-                return loadedCount < lastPage.totalCount ? pages.count + 1 : nil
-            }
-        ) { page in
-            try await GitHubAPI.searchRepositories(query: "swift language:swift", page: page)
-        }
-    )
+    @InfiniteQueryBinding() private var repositories: InfiniteQueryState<Int, GitHubRepositorySearchPage, InfiniteData<Int, GitHubRepositorySearchPage>>
 
     private var flattenedRepositories: [GitHubRepository] {
         repositories.pages.flatMap(\.items)
@@ -68,11 +57,16 @@ struct InfiniteQueryExampleScreen: View {
             .padding()
         }
         .navigationTitle("Infinite Query")
-        .onAppear {
-            repositories.start(using: client)
-        }
-        .onDisappear {
-            repositories.stop()
+        .infiniteQuery(
+            $repositories,
+            key: ["github", "repositories", "infinite", AnyQueryKeyPart(queryText)],
+            initialPageParam: 1,
+            getNextPageParam: { lastPage, pages in
+                let loadedCount = pages.count * GitHubAPI.repositoriesPerPage
+                return loadedCount < lastPage.totalCount ? pages.count + 1 : nil
+            }
+        ) { [queryText] page in
+            try await GitHubAPI.searchRepositories(query: queryText, page: page)
         }
     }
 }

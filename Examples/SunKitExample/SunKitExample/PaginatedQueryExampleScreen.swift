@@ -6,18 +6,15 @@ struct PaginatedQueryExampleScreen: View {
     @Environment(\.queryClient) private var client
 
     @State private var searchText = "swift language:swift"
-    @State private var repositories = PaginatedQueryState<String, Int, GitHubRepositorySearchPage, GitHubRepositorySearchPage>(
-        input: "swift language:swift",
+    @State private var submittedSearchText = "swift language:swift"
+
+    @PaginatedQueryBinding(
+        initialInput: "swift language:swift",
         initialPage: 1,
-        key: { query, page in
-            ["github", "repositories", AnyQueryKeyPart(query), AnyQueryKeyPart(page)]
-        },
         nextPage: { $0 + 1 },
         previousPage: { $0 - 1 },
         canMoveToPreviousPage: { $0 > 1 }
-    ) { query, page in
-        try await GitHubAPI.searchRepositories(query: query, page: page)
-    }
+    ) private var repositories: PaginatedQueryState<String, Int, GitHubRepositorySearchPage, GitHubRepositorySearchPage>
 
     var body: some View {
         ScrollView {
@@ -89,15 +86,18 @@ struct PaginatedQueryExampleScreen: View {
             .padding()
         }
         .navigationTitle("Paginated Query")
-        .onAppear {
-            repositories.start(using: client)
-        }
-        .onDisappear {
-            repositories.stop()
+        .paginatedQuery(
+            $repositories,
+            input: submittedSearchText,
+            key: { query, page in
+                ["github", "repositories", AnyQueryKeyPart(query), AnyQueryKeyPart(page)]
+            }
+        ) { query, page in
+            try await GitHubAPI.searchRepositories(query: query, page: page)
         }
     }
 
     private func searchRepositories() {
-        repositories.setInput(searchText, using: client)
+        submittedSearchText = searchText
     }
 }
