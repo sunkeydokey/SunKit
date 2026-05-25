@@ -51,6 +51,12 @@ struct ContentView: View {
                 } label: {
                     Label("Enabled", systemImage: "switch.2")
                 }
+
+                NavigationLink {
+                    DynamicQueryBindingExampleScreen()
+                } label: {
+                    Label("Dynamic Query", systemImage: "arrow.triangle.2.circlepath")
+                }
             }
             .navigationTitle("SunKit")
         }
