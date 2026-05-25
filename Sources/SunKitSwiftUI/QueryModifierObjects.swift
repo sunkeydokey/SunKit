@@ -2,38 +2,38 @@ import Observation
 import SwiftUI
 import SunKit
 
-// MARK: - InfiniteQueryObject
+// MARK: - InfiniteQueryBinding
 
 /// A SwiftUI property wrapper that owns an ``InfiniteQueryState`` engine.
 @propertyWrapper
-public struct InfiniteQueryObject<PageParam: Sendable, Page: Sendable, SelectedValue: Sendable>: DynamicProperty {
+public struct InfiniteQueryBinding<PageParam: Sendable, Page: Sendable, SelectedValue: Sendable>: DynamicProperty {
     @State private var state: InfiniteQueryState<PageParam, Page, SelectedValue>
 
     /// The underlying infinite query state.
     public var wrappedValue: InfiniteQueryState<PageParam, Page, SelectedValue> { state }
 
     /// A binding used by ``View/infiniteQuery(_:key:initialPageParam:enabled:getNextPageParam:fetchPage:)``.
-    public var projectedValue: InfiniteQueryObjectBinding<PageParam, Page, SelectedValue> {
-        InfiniteQueryObjectBinding(state: state)
+    public var projectedValue: InfiniteQueryBindingHandle<PageParam, Page, SelectedValue> {
+        InfiniteQueryBindingHandle(state: state)
     }
 
-    /// Creates an infinite query object with static observer options.
+    /// Creates an infinite query binding with static observer options.
     @MainActor
     public init(options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>) {
         _state = State(initialValue: InfiniteQueryState(options: options))
     }
 }
 
-public extension InfiniteQueryObject where SelectedValue == InfiniteData<PageParam, Page> {
-    /// Creates an infinite query object that exposes accumulated raw data.
+public extension InfiniteQueryBinding where SelectedValue == InfiniteData<PageParam, Page> {
+    /// Creates an infinite query binding that exposes accumulated raw data.
     @MainActor
     init() {
         self.init(options: .default)
     }
 }
 
-/// A binding between ``InfiniteQueryObject`` and the `.infiniteQuery` view modifier.
-public struct InfiniteQueryObjectBinding<PageParam: Sendable, Page: Sendable, SelectedValue: Sendable> {
+/// A binding between ``InfiniteQueryBinding`` and the `.infiniteQuery` view modifier.
+public struct InfiniteQueryBindingHandle<PageParam: Sendable, Page: Sendable, SelectedValue: Sendable> {
     private let state: InfiniteQueryState<PageParam, Page, SelectedValue>
 
     init(state: InfiniteQueryState<PageParam, Page, SelectedValue>) {
@@ -55,8 +55,8 @@ public struct InfiniteQueryObjectBinding<PageParam: Sendable, Page: Sendable, Se
     }
 }
 
-private struct InfiniteQueryObjectModifier<PageParam: Sendable, Page: Sendable, SelectedValue: Sendable>: ViewModifier {
-    let binding: InfiniteQueryObjectBinding<PageParam, Page, SelectedValue>
+private struct InfiniteQueryBindingModifier<PageParam: Sendable, Page: Sendable, SelectedValue: Sendable>: ViewModifier {
+    let binding: InfiniteQueryBindingHandle<PageParam, Page, SelectedValue>
     let key: [AnyQueryKeyPart]
     let initialPageParam: PageParam
     let queryOptions: QueryOptions?
@@ -66,8 +66,8 @@ private struct InfiniteQueryObjectModifier<PageParam: Sendable, Page: Sendable, 
 
     @Environment(\.queryClient) private var client
 
-    private var token: InfiniteQueryObjectToken<PageParam, Page> {
-        InfiniteQueryObjectToken(key: QueryKey(key), enabled: enabled)
+    private var token: InfiniteQueryBindingToken<PageParam, Page> {
+        InfiniteQueryBindingToken(key: QueryKey(key), enabled: enabled)
     }
 
     func body(content: Content) -> some View {
@@ -95,27 +95,27 @@ private struct InfiniteQueryObjectModifier<PageParam: Sendable, Page: Sendable, 
     }
 }
 
-private struct InfiniteQueryObjectToken<PageParam: Sendable, Page: Sendable>: Equatable {
+private struct InfiniteQueryBindingToken<PageParam: Sendable, Page: Sendable>: Equatable {
     let key: QueryKey<InfiniteData<PageParam, Page>>
     let enabled: Bool
 }
 
-// MARK: - PaginatedQueryObject
+// MARK: - PaginatedQueryBinding
 
 /// A SwiftUI property wrapper that owns a ``PaginatedQueryState`` engine.
 @propertyWrapper
-public struct PaginatedQueryObject<Input: Hashable & Sendable, Page: Sendable, RawValue: Sendable, SelectedValue: Sendable>: DynamicProperty {
+public struct PaginatedQueryBinding<Input: Hashable & Sendable, Page: Sendable, RawValue: Sendable, SelectedValue: Sendable>: DynamicProperty {
     @State private var state: PaginatedQueryState<Input, Page, RawValue, SelectedValue>
 
     /// The underlying paginated query state.
     public var wrappedValue: PaginatedQueryState<Input, Page, RawValue, SelectedValue> { state }
 
     /// A binding used by ``View/paginatedQuery(_:input:enabled:key:fetch:)``.
-    public var projectedValue: PaginatedQueryObjectBinding<Input, Page, RawValue, SelectedValue> {
-        PaginatedQueryObjectBinding(state: state)
+    public var projectedValue: PaginatedQueryBindingHandle<Input, Page, RawValue, SelectedValue> {
+        PaginatedQueryBindingHandle(state: state)
     }
 
-    /// Creates a paginated query object with static page navigation and observer options.
+    /// Creates a paginated query binding with static page navigation and observer options.
     @MainActor
     public init(
         initialInput: Input,
@@ -140,8 +140,8 @@ public struct PaginatedQueryObject<Input: Hashable & Sendable, Page: Sendable, R
     }
 }
 
-public extension PaginatedQueryObject where RawValue == SelectedValue {
-    /// Creates a paginated query object that exposes the raw cached value.
+public extension PaginatedQueryBinding where RawValue == SelectedValue {
+    /// Creates a paginated query binding that exposes the raw cached value.
     @MainActor
     init(
         initialInput: Input,
@@ -163,8 +163,8 @@ public extension PaginatedQueryObject where RawValue == SelectedValue {
     }
 }
 
-/// A binding between ``PaginatedQueryObject`` and the `.paginatedQuery` view modifier.
-public struct PaginatedQueryObjectBinding<Input: Hashable & Sendable, Page: Sendable, RawValue: Sendable, SelectedValue: Sendable> {
+/// A binding between ``PaginatedQueryBinding`` and the `.paginatedQuery` view modifier.
+public struct PaginatedQueryBindingHandle<Input: Hashable & Sendable, Page: Sendable, RawValue: Sendable, SelectedValue: Sendable> {
     private let state: PaginatedQueryState<Input, Page, RawValue, SelectedValue>
 
     init(state: PaginatedQueryState<Input, Page, RawValue, SelectedValue>) {
@@ -193,8 +193,8 @@ public struct PaginatedQueryObjectBinding<Input: Hashable & Sendable, Page: Send
     }
 }
 
-private struct PaginatedQueryObjectModifier<Input: Hashable & Sendable, Page: Sendable, RawValue: Sendable, SelectedValue: Sendable>: ViewModifier {
-    let binding: PaginatedQueryObjectBinding<Input, Page, RawValue, SelectedValue>
+private struct PaginatedQueryBindingModifier<Input: Hashable & Sendable, Page: Sendable, RawValue: Sendable, SelectedValue: Sendable>: ViewModifier {
+    let binding: PaginatedQueryBindingHandle<Input, Page, RawValue, SelectedValue>
     let input: Input
     let enabled: Bool
     let key: @Sendable (Input, Page) -> [AnyQueryKeyPart]
@@ -202,8 +202,8 @@ private struct PaginatedQueryObjectModifier<Input: Hashable & Sendable, Page: Se
 
     @Environment(\.queryClient) private var client
 
-    private var token: PaginatedQueryObjectToken<RawValue> {
-        PaginatedQueryObjectToken(key: QueryKey(key(input, binding.page)), input: AnyQueryKeyPart(input), enabled: enabled)
+    private var token: PaginatedQueryBindingToken<RawValue> {
+        PaginatedQueryBindingToken(key: QueryKey(key(input, binding.page)), input: AnyQueryKeyPart(input), enabled: enabled)
     }
 
     func body(content: Content) -> some View {
@@ -224,13 +224,13 @@ private struct PaginatedQueryObjectModifier<Input: Hashable & Sendable, Page: Se
     }
 }
 
-private struct PaginatedQueryObjectToken<Value: Sendable>: Equatable {
+private struct PaginatedQueryBindingToken<Value: Sendable>: Equatable {
     let key: QueryKey<Value>
     let input: AnyQueryKeyPart
     let enabled: Bool
 }
 
-// MARK: - ParallelQueriesObject
+// MARK: - ParallelQueriesBinding
 
 /// Observable state for one-shot parallel query batches.
 @MainActor
@@ -252,8 +252,7 @@ public final class ParallelQueriesState {
         task?.cancel()
     }
 
-    /// Runs a parallel query batch with the provided client.
-    public func run(_ queries: [AnyParallelQuery], using client: QueryClient) {
+    fileprivate func run(_ queries: [AnyParallelQuery], using client: QueryClient) {
         generation += 1
         let gen = generation
         task?.cancel()
@@ -269,8 +268,7 @@ public final class ParallelQueriesState {
         }
     }
 
-    /// Cancels the current batch owned by this state object.
-    public func cancel() {
+    fileprivate func cancel() {
         generation += 1
         task?.cancel()
         task = nil
@@ -280,26 +278,26 @@ public final class ParallelQueriesState {
 
 /// A SwiftUI property wrapper that owns ``ParallelQueriesState``.
 @propertyWrapper
-public struct ParallelQueriesObject: DynamicProperty {
+public struct ParallelQueriesBinding: DynamicProperty {
     @State private var state: ParallelQueriesState
 
     /// The underlying parallel queries state.
     public var wrappedValue: ParallelQueriesState { state }
 
     /// A binding used by ``View/parallelQueries(_:queries:token:enabled:)``.
-    public var projectedValue: ParallelQueriesObjectBinding {
-        ParallelQueriesObjectBinding(state: state)
+    public var projectedValue: ParallelQueriesBindingHandle {
+        ParallelQueriesBindingHandle(state: state)
     }
 
-    /// Creates a parallel queries object.
+    /// Creates a parallel queries binding.
     @MainActor
     public init() {
         _state = State(initialValue: ParallelQueriesState())
     }
 }
 
-/// A binding between ``ParallelQueriesObject`` and the `.parallelQueries` view modifier.
-public struct ParallelQueriesObjectBinding {
+/// A binding between ``ParallelQueriesBinding`` and the `.parallelQueries` view modifier.
+public struct ParallelQueriesBindingHandle {
     private let state: ParallelQueriesState
 
     init(state: ParallelQueriesState) {
@@ -321,16 +319,16 @@ public struct ParallelQueriesObjectBinding {
     }
 }
 
-private struct ParallelQueriesObjectModifier<Token: Hashable & Sendable>: ViewModifier {
-    let binding: ParallelQueriesObjectBinding
+private struct ParallelQueriesBindingModifier<Token: Hashable & Sendable>: ViewModifier {
+    let binding: ParallelQueriesBindingHandle
     let queries: [AnyParallelQuery]
     let token: Token
     let enabled: Bool
 
     @Environment(\.queryClient) private var client
 
-    private var changeToken: ParallelQueriesObjectToken<Token> {
-        ParallelQueriesObjectToken(token: token, enabled: enabled)
+    private var changeToken: ParallelQueriesBindingToken<Token> {
+        ParallelQueriesBindingToken(token: token, enabled: enabled)
     }
 
     func body(content: Content) -> some View {
@@ -351,15 +349,15 @@ private struct ParallelQueriesObjectModifier<Token: Hashable & Sendable>: ViewMo
     }
 }
 
-private struct ParallelQueriesObjectToken<Token: Hashable & Sendable>: Equatable {
+private struct ParallelQueriesBindingToken<Token: Hashable & Sendable>: Equatable {
     let token: Token
     let enabled: Bool
 }
 
 public extension View {
-    /// Configures and starts an infinite query object from values available in `body`.
+    /// Configures and starts an infinite query binding from values available in `body`.
     func infiniteQuery<PageParam: Sendable, Page: Sendable, SelectedValue: Sendable>(
-        _ query: InfiniteQueryObjectBinding<PageParam, Page, SelectedValue>,
+        _ query: InfiniteQueryBindingHandle<PageParam, Page, SelectedValue>,
         key: [AnyQueryKeyPart],
         initialPageParam: PageParam,
         queryOptions: QueryOptions? = nil,
@@ -368,7 +366,7 @@ public extension View {
         fetchPage: @escaping @Sendable (PageParam) async throws -> Page
     ) -> some View {
         modifier(
-            InfiniteQueryObjectModifier(
+            InfiniteQueryBindingModifier(
                 binding: query,
                 key: key,
                 initialPageParam: initialPageParam,
@@ -380,16 +378,16 @@ public extension View {
         )
     }
 
-    /// Configures and starts a paginated query object from values available in `body`.
+    /// Configures and starts a paginated query binding from values available in `body`.
     func paginatedQuery<Input: Hashable & Sendable, Page: Sendable, RawValue: Sendable, SelectedValue: Sendable>(
-        _ query: PaginatedQueryObjectBinding<Input, Page, RawValue, SelectedValue>,
+        _ query: PaginatedQueryBindingHandle<Input, Page, RawValue, SelectedValue>,
         input: Input,
         enabled: Bool = true,
         key: @escaping @Sendable (Input, Page) -> [AnyQueryKeyPart],
         fetch: @escaping @Sendable (Input, Page) async throws -> RawValue
     ) -> some View {
         modifier(
-            PaginatedQueryObjectModifier(
+            PaginatedQueryBindingModifier(
                 binding: query,
                 input: input,
                 enabled: enabled,
@@ -401,13 +399,13 @@ public extension View {
 
     /// Configures and runs a one-shot parallel query batch.
     func parallelQueries<Token: Hashable & Sendable>(
-        _ queriesState: ParallelQueriesObjectBinding,
+        _ queriesState: ParallelQueriesBindingHandle,
         queries: [AnyParallelQuery],
         token: Token,
         enabled: Bool = true
     ) -> some View {
         modifier(
-            ParallelQueriesObjectModifier(
+            ParallelQueriesBindingModifier(
                 binding: queriesState,
                 queries: queries,
                 token: token,

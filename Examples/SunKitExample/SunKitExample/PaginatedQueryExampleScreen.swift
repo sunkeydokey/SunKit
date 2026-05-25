@@ -8,7 +8,7 @@ struct PaginatedQueryExampleScreen: View {
     @State private var searchText = "swift language:swift"
     @State private var submittedSearchText = "swift language:swift"
 
-    @PaginatedQueryObject(
+    @PaginatedQueryBinding(
         initialInput: "swift language:swift",
         initialPage: 1,
         nextPage: { $0 + 1 },

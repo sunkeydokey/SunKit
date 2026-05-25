@@ -7,7 +7,7 @@ struct InfiniteQueryExampleScreen: View {
 
     private let queryText = "swift language:swift"
 
-    @InfiniteQueryObject() private var repositories: InfiniteQueryState<Int, GitHubRepositorySearchPage, InfiniteData<Int, GitHubRepositorySearchPage>>
+    @InfiniteQueryBinding() private var repositories: InfiniteQueryState<Int, GitHubRepositorySearchPage, InfiniteData<Int, GitHubRepositorySearchPage>>
 
     private var flattenedRepositories: [GitHubRepository] {
         repositories.pages.flatMap(\.items)

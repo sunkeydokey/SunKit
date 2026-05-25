@@ -5,7 +5,7 @@ import SunKitSwiftUI
 struct EnabledExampleScreen: View {
     @State private var username = ""
 
-    @QueryObject(
+    @QueryBinding(
         options: QueryObserverOptions(
             refetchOnSubscribe: .always,
             refetchOnSceneActive: .never,

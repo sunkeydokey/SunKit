@@ -6,22 +6,22 @@ Use `SunKitSwiftUI` to bind Core query state to SwiftUI views.
 
 The SwiftUI adapter is intentionally small. It provides an environment value
 for sharing a `QueryClient`, observable `QueryState` for rendering the latest
-`QueryResult`, `QueryObject` for configuring query state from `body`,
+`QueryResult`, `QueryBinding` for configuring query state from `body`,
 observable `InfiniteQueryState` for rendering accumulated next pages,
-`InfiniteQueryObject` and `PaginatedQueryObject` for modifier-driven page
+`InfiniteQueryBinding` and `PaginatedQueryBinding` for modifier-driven page
 queries, `ParallelQueriesState` for one-shot batch results, and observable
 `MutationState` for rendering mutation progress.
 
-## QueryObject Modifier
+## QueryBinding Modifier
 
-Use `QueryObject` with the `.query(...)` modifier when a query key or fetcher
+Use `QueryBinding` with the `.query(...)` modifier when a query key or fetcher
 depends on state owned by the same view. The property wrapper owns the
 `QueryState` engine, and the modifier supplies dynamic values from `body`:
 
 ```swift
 struct FollowersView: View {
     @State private var username = ""
-    @QueryObject(
+    @QueryBinding(
         options: QueryObserverOptions(
             refetchOnSubscribe: .always,
             refetchOnSceneActive: .never,
@@ -51,7 +51,7 @@ struct FollowersView: View {
 
 The `.query(...)` modifier reads `\.queryClient`, updates the stored state on
 appearance, updates it again when the key or `enabled` flag changes, and stops
-the state on disappearance. `QueryObject` options are static for the lifetime of
+the state on disappearance. `QueryBinding` options are static for the lifetime of
 the stored state; pass dynamic fetch gating through the modifier's `enabled`
 parameter.
 
@@ -117,7 +117,7 @@ failures, and `keepPreviousData` placeholders.
 
 ## Dynamic Keys
 
-Use `QueryObject` and `.query(...)` for dynamic keys driven by state in the same
+Use `QueryBinding` and `.query(...)` for dynamic keys driven by state in the same
 view. If you manage lifecycle manually, call `update(key:using:fetch:)` when the
 same SwiftUI state object should observe a different cache key, such as after a
 search term, filter, or page value changes:
@@ -177,14 +177,14 @@ while keeping the subscription active.
 
 ## Paginated Queries
 
-Use `PaginatedQueryObject` with `.paginatedQuery(...)` when the input, key, or
+Use `PaginatedQueryBinding` with `.paginatedQuery(...)` when the input, key, or
 fetcher depends on state owned by the same view:
 
 ```swift
 @State private var searchText = ""
 @State private var submittedSearchText = ""
 
-@PaginatedQueryObject(
+@PaginatedQueryBinding(
     initialInput: "",
     initialPage: 1,
     nextPage: { $0 + 1 },
@@ -243,11 +243,11 @@ into one result is handled by the separate infinite-query API, not by
 
 ## Infinite Queries
 
-Use `InfiniteQueryObject` with `.infiniteQuery(...)` when the infinite query key
+Use `InfiniteQueryBinding` with `.infiniteQuery(...)` when the infinite query key
 or fetcher depends on state owned by the same view:
 
 ```swift
-@InfiniteQueryObject(
+@InfiniteQueryBinding(
     options: QueryObserverOptions(refetchOnSubscribe: .always)
 ) private var repositories: InfiniteQueryState<Int, RepositoryPage, InfiniteData<Int, RepositoryPage>>
 
@@ -334,13 +334,13 @@ Infinite query selection transforms the full accumulated raw container:
 
 ## Parallel Queries
 
-Use `ParallelQueriesObject` with `.parallelQueries(...)` to run a one-shot batch
+Use `ParallelQueriesBinding` with `.parallelQueries(...)` to run a one-shot batch
 from values available in `body`. Parallel batches are not subscriptions; they
 store the latest `ParallelQueryResults` and run again only when the explicit
 token changes or `enabled` transitions to `true`:
 
 ```swift
-@ParallelQueriesObject private var dashboard: ParallelQueriesState
+@ParallelQueriesBinding private var dashboard: ParallelQueriesState
 
 var body: some View {
     DashboardView(results: dashboard.result)
@@ -356,8 +356,8 @@ var body: some View {
 }
 ```
 
-`ParallelQueriesState` also exposes public `run(_:using:)` and `cancel()` methods
-for explicit one-shot execution outside the modifier. Batch execution uses
+Batch execution is configured through `.parallelQueries(...)`; the observable
+state exposes results and fetching status for rendering. Execution uses
 `QueryClient.fetchQueries(_:)`, so duplicate typed keys, partial failures, and
 in-flight dedupe follow the Core parallel query semantics.
 
