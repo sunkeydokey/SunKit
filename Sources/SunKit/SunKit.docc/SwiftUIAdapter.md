@@ -321,7 +321,8 @@ Placeholder data is not written to the `QueryClient` cache.
 
 `refetch(using:)` reloads from `initialPageParam` and replaces accumulated data
 with the first page. The MVP adapter does not fetch previous pages, evict old
-pages, reverse page order, or perform optimistic infinite updates.
+pages, refetch every previously loaded page, reverse page order, or perform
+optimistic infinite updates.
 
 Infinite query selection transforms the full accumulated raw container:
 

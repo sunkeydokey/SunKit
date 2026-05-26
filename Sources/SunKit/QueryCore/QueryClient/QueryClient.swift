@@ -121,7 +121,7 @@ public actor QueryClient {
     ///
     /// The MVP infinite-query model refetches from `initialPageParam` and
     /// replaces the accumulated pages with that single first page. It does not
-    /// refetch every previously loaded page.
+    /// refetch every previously loaded page or perform previous-page fetches.
     @discardableResult
     public func fetchInfiniteQuery<PageParam: Sendable, Page: Sendable>(
         _ query: InfiniteQuery<PageParam, Page>
@@ -141,6 +141,9 @@ public actor QueryClient {
     /// If `getNextPageParam` returns `nil`, no fetch is started and the current
     /// cached result is returned. Concurrent calls for the same typed key join
     /// the existing in-flight task through the normal query dedupe path.
+    /// If invalidation happens while a next-page fetch is in flight, a
+    /// successful append clears that invalidation through the normal fetch
+    /// completion path.
     @discardableResult
     public func fetchNextPage<PageParam: Sendable, Page: Sendable>(
         _ query: InfiniteQuery<PageParam, Page>

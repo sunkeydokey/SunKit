@@ -281,6 +281,18 @@ Button("Create") {
 
 ## Infinite Queries
 
+SunKit's MVP infinite-query model is next-page-only. `fetchInfiniteQuery` and
+`refetch(using:)` reload from `initialPageParam` and replace accumulated data
+with the first page; they do not refetch every previously loaded page.
+`fetchNextPage` appends one next page when `getNextPageParam` returns a value.
+If `getNextPageParam` returns `nil`, no fetch starts and the current cached
+result is returned. Previous-page fetches, page eviction, reversed page order,
+and optimistic infinite updates are not part of the MVP.
+
+If invalidation happens while a `fetchNextPage` request is already in flight,
+the append may complete as the successful fetch for that key and clear the
+invalidation state.
+
 ```swift
 @InfiniteQueryBinding() private var feed: InfiniteQueryState<Int, Post, InfiniteData<Int, Post>>
 

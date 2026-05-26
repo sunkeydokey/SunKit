@@ -24,13 +24,17 @@ let firstTwoPages = await client.fetchNextPage(repositories)
 ```
 
 `fetchInfiniteQuery(_:)` loads `initialPageParam` and replaces the accumulated
-data with a single first page. `fetchNextPage(_:)` reads the current cached
-`InfiniteData`, computes the next page parameter from the last page, fetches
-that page, and appends it.
+data with a single first page. It does not refetch every previously loaded
+page. `fetchNextPage(_:)` reads the current cached `InfiniteData`, computes
+the next page parameter from the last page, fetches that page, and appends it.
 
 If no cached page exists, `fetchNextPage(_:)` loads the initial page. If
 `getNextPageParam` returns `nil`, no fetch is started and the current cached
 result is returned.
+
+If invalidation happens while a `fetchNextPage(_:)` request is already in
+flight, the append may finish as the successful fetch for that key. That
+success clears the invalidation state through the normal query fetch path.
 
 SwiftUI `InfiniteQueryState` can select a render value from the full accumulated
 raw container. For example, a state can store
@@ -42,8 +46,8 @@ raw container. For example, a state can store
 ## MVP Limitations
 
 SunKit's MVP infinite-query model is next-page-only. It does not provide
-previous-page fetches, max page counts, page eviction, reversed order, or
-optimistic infinite updates.
+previous-page fetches, loaded-page refetch, max page counts, page eviction,
+reversed order, or optimistic infinite updates.
 
 Concurrent `fetchNextPage(_:)` calls for the same typed key join the same
 in-flight task through the normal query dedupe path, so a next page is appended
