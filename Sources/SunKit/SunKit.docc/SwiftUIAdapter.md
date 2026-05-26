@@ -12,6 +12,11 @@ observable `InfiniteQueryState` for rendering accumulated next pages,
 queries, `ParallelQueriesState` for one-shot batch results, and observable
 `MutationState` for rendering mutation progress.
 
+Install one client near the app or scene root with `.queryClient(...)` before
+using query modifiers or reading `@Environment(\.queryClient)`. Missing this
+environment value is a programming error and terminates with `fatalError`
+instead of creating an implicit cache scope.
+
 ## QueryBinding Modifier
 
 Use `QueryBinding` with the `.query(...)` modifier when a query key or fetcher

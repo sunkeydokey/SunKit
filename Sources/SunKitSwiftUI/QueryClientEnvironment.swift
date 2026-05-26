@@ -2,14 +2,31 @@ import SwiftUI
 import SunKit
 
 private struct QueryClientKey: EnvironmentKey {
-    static let defaultValue = QueryClient()
+    static let defaultValue: QueryClient? = nil
 }
 
 extension EnvironmentValues {
     /// The query client used by SunKit SwiftUI views in this environment.
+    ///
+    /// This value must be provided with ``View/queryClient(_:)`` near the app
+    /// or scene root. Reading it without a configured client is a programming
+    /// error and terminates with `fatalError`.
     public var queryClient: QueryClient {
-        get { self[QueryClientKey.self] }
+        get {
+            guard let client = self[QueryClientKey.self] else {
+                fatalError(
+                    "SunKitSwiftUI requires a QueryClient in the SwiftUI environment. " +
+                    "Add `.queryClient(QueryClient(...))` near your app or scene root " +
+                    "before using SunKit query modifiers or @Environment(\\.queryClient)."
+                )
+            }
+            return client
+        }
         set { self[QueryClientKey.self] = newValue }
+    }
+
+    var isQueryClientConfigured: Bool {
+        self[QueryClientKey.self] != nil
     }
 }
 

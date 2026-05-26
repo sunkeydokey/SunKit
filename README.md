@@ -139,7 +139,9 @@ operation is not defined in v0.1.
 
 ## SwiftUI Usage
 
-Inject one client near the app root:
+Inject one client near the app root. SunKit SwiftUI modifiers and
+`@Environment(\.queryClient)` require this environment value; using them without
+`.queryClient(...)` is a programming error and terminates with `fatalError`.
 
 ```swift
 @main

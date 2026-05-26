@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 @testable import SunKit
 @testable import SunKitSwiftUI
@@ -27,6 +28,22 @@ private actor PageFetchRecorder {
     func values() -> [String] {
         calls
     }
+}
+
+@Test func queryClientEnvironmentDefaultsToUnconfigured() {
+    let values = EnvironmentValues()
+
+    #expect(values.isQueryClientConfigured == false)
+}
+
+@Test func queryClientEnvironmentStoresConfiguredClient() {
+    var values = EnvironmentValues()
+    let client = QueryClient()
+
+    values.queryClient = client
+
+    #expect(values.isQueryClientConfigured)
+    #expect(values.queryClient === client)
 }
 
 private enum SelectTestError: Error {
