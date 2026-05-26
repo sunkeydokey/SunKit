@@ -207,7 +207,9 @@ public actor QueryClient {
     /// Subscribes to result changes for a typed query key.
     ///
     /// Subscribing only registers a listener and optionally delivers the current
-    /// value. It never starts a fetch by itself.
+    /// value. It never starts a fetch by itself. If `deliverOn` is `nil`, Core
+    /// schedules listener work asynchronously without a public ordering
+    /// guarantee for rapid consecutive publications.
     public func subscribe<Value: Sendable>(
         to key: QueryKey<Value>,
         receiveCurrentValue: Bool = true,

@@ -17,6 +17,11 @@ Delivery can be scheduled on a `DispatchQueue`, or Core can schedule listener
 work asynchronously without a queue. Listener closures are not called directly
 while mutating actor-isolated cache state.
 
+When `deliverOn` is a `DispatchQueue`, each publication is scheduled on that
+queue. When `deliverOn` is `nil`, Core schedules listener work asynchronously
+without a queue. Strict ordering for rapid consecutive publications is not
+guaranteed in the `nil` delivery mode.
+
 Cancel the returned `QuerySubscription` to stop receiving publications:
 
 ```swift
