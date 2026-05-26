@@ -62,7 +62,11 @@ public struct QueryResult<Value: Sendable>: Sendable {
     /// can run while successful or stale data remains available.
     public let isFetching: Bool
 
-    /// A Boolean value indicating whether the data should be treated as stale.
+    /// A Boolean value indicating whether this result snapshot should be
+    /// treated as stale.
+    ///
+    /// Use ``QueryClient/isQueryStale(_:)`` to ask the client about the current
+    /// cache entry's freshness.
     public let isStale: Bool
 
     /// A Boolean value indicating whether `data` is placeholder data.

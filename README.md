@@ -125,6 +125,13 @@ Invalidating an active query starts a background refetch when the client has a
 previous fetcher. If that typed key is already fetching, the invalidation
 refetch joins the existing in-flight task instead of forcing another request.
 
+`QueryResult.isStale` describes the result snapshot being read. A refetch
+failure can expose stale data through `result.data` and `result.isStale`.
+`QueryClient.isQueryStale(_:)` checks the current cache entry instead: missing
+entries, invalidated entries, entries without successful data, and entries past
+`staleTime` are stale. Fetch failures do not mark entries invalidated by
+themselves.
+
 ### Completion-based fetchers
 
 Wrap legacy completion APIs with the built-in bridge:

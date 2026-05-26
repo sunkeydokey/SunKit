@@ -17,7 +17,14 @@ projections such as `isPending`, `isFetching`, `isSuccess`, `isError`, `data`,
 
 Use `data` to read the latest available value. When an initial fetch fails,
 `data` is `nil`. When a refetch fails after data already exists, `data` keeps
-the stale value and `error` describes the latest failure.
+the stale value and `error` describes the latest failure. Fetch failures do not
+mark cache entries invalidated by themselves.
+
+`isStale` describes this result snapshot. It can be `true` because the cache
+entry became stale, because an explicit invalidation marked the delivered data
+stale, or because a failed refetch is exposing stale data. Use
+`QueryClient.isQueryStale(_:)` when you need to ask the client about the
+current cache entry's freshness.
 
 ## Pending and Fetching
 

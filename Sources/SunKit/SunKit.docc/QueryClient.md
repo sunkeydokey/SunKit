@@ -43,7 +43,9 @@ that mark entries invalidated.
 Use `isQueryStale(_:)` when an observer needs to decide whether an `.ifStale`
 trigger should fetch. Missing entries are stale. Existing entries are stale
 when invalidated, when they have no successful update time, or when their
-freshness window has elapsed.
+freshness window has elapsed. This cache-level freshness check is different
+from `QueryResult.isStale`, which describes one delivered result snapshot and
+can be `true` when a failed refetch keeps stale data available.
 
 ## Typed Cache Access
 

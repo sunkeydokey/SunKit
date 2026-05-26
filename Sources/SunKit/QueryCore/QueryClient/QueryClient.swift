@@ -193,7 +193,9 @@ public actor QueryClient {
     ///
     /// Missing cache entries are treated as stale. UI adapters can use this to
     /// decide whether `.ifStale` observer triggers should start a fetch without
-    /// relying on stale-only result publications.
+    /// relying on stale-only result publications. This cache-level freshness
+    /// check is distinct from `QueryResult.isStale`, which describes one
+    /// delivered result snapshot.
     public func isQueryStale<Value: Sendable>(_ key: QueryKey<Value>) async -> Bool {
         guard let entry = existingEntry(for: key) else {
             return true
