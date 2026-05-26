@@ -412,24 +412,109 @@ func refetchIntervalDoesNotPreventSlowFetchCompletion() async {
 func refetchOnSceneActiveAlwaysRefetchesOnNotification() async {
     let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
     let counter = SwiftUIFetchCounter()
+    let sceneActiveNotificationName = Notification.Name("refetchOnSceneActiveAlwaysRefetchesOnNotification-\(UUID().uuidString)")
     let state = QueryState(
         key: ["swiftui", "scene-active"],
         options: QueryObserverOptions(
             refetchOnSubscribe: .always,
-            refetchOnSceneActive: .always
-        )
+            refetchOnSceneActive: .always,
+            refetchOnNetworkReconnect: .never
+        ),
+        sceneActiveNotificationName: sceneActiveNotificationName
     ) {
         await counter.next()
     }
 
     state.start(using: client)
-    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
-    try? await Task.sleep(nanoseconds: 20_000_000)
+    #expect(await eventuallyOnMainActor {
+        state.result?.data == 1 && state.isSceneActiveRefetchTriggerArmed
+    })
 
     // Simulate scene becoming active
-    NotificationCenter.default.post(name: QueryState<Int, Int>.sceneActiveNotificationName, object: nil)
+    NotificationCenter.default.post(name: sceneActiveNotificationName, object: nil)
 
     #expect(await eventuallyOnMainActor { state.result?.data == 2 })
+    state.stop()
+}
+
+@Test
+@MainActor
+func sceneActiveTriggerStopsWhenQueryStateStops() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let counter = SwiftUIFetchCounter()
+    let sceneActiveNotificationName = Notification.Name("sceneActiveTriggerStopsWhenQueryStateStops-\(UUID().uuidString)")
+    let state = QueryState(
+        key: ["swiftui", "scene-active", "stop"],
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .always,
+            refetchOnNetworkReconnect: .never
+        ),
+        sceneActiveNotificationName: sceneActiveNotificationName
+    ) {
+        await counter.next()
+    }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor {
+        state.result?.data == 1 && state.isSceneActiveRefetchTriggerArmed
+    })
+
+    state.stop()
+    NotificationCenter.default.post(name: sceneActiveNotificationName, object: nil)
+    try? await Task.sleep(nanoseconds: 50_000_000)
+
+    #expect(await counter.value() == 1)
+}
+
+@Test
+@MainActor
+func queryStateEnabledTransitionControlsSceneActiveTrigger() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let counter = SwiftUIFetchCounter()
+    let sceneActiveNotificationName = Notification.Name("queryStateEnabledTransitionControlsSceneActiveTrigger-\(UUID().uuidString)")
+    let state = QueryState(
+        key: ["swiftui", "scene-active", "enabled"],
+        options: QueryObserverOptions(
+            enabled: false,
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .always,
+            refetchOnNetworkReconnect: .never
+        ),
+        sceneActiveNotificationName: sceneActiveNotificationName
+    ) {
+        await counter.next()
+    }
+
+    let updatedFetch: @Sendable () async throws -> Int = {
+        await counter.next()
+    }
+
+    state.start(using: client)
+    #expect(state.isSceneActiveRefetchTriggerArmed == false)
+
+    state.update(
+        key: ["swiftui", "scene-active", "enabled"],
+        using: client,
+        fetch: updatedFetch,
+        enabled: true
+    )
+    #expect(await eventuallyOnMainActor { state.isSceneActiveRefetchTriggerArmed })
+
+    NotificationCenter.default.post(name: sceneActiveNotificationName, object: nil)
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+
+    state.update(
+        key: ["swiftui", "scene-active", "enabled"],
+        using: client,
+        fetch: updatedFetch,
+        enabled: false
+    )
+    #expect(state.isSceneActiveRefetchTriggerArmed == false)
+    NotificationCenter.default.post(name: sceneActiveNotificationName, object: nil)
+    try? await Task.sleep(nanoseconds: 50_000_000)
+
+    #expect(await counter.value() == 1)
     state.stop()
 }
 
@@ -463,13 +548,15 @@ func networkReconnectNeverPolicyDoesNotRefetch() async {
 func queryStateIgnoresStaleOnlyPublication() async {
     let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0.02))
     let counter = SwiftUIFetchCounter()
+    let sceneActiveNotificationName = Notification.Name("queryStateIgnoresStaleOnlyPublication-\(UUID().uuidString)")
     let state = QueryState(
         key: ["swiftui", "stale-time"],
         options: QueryObserverOptions(
             refetchOnSubscribe: .always,
             refetchOnSceneActive: .ifStale,
             refetchOnNetworkReconnect: .never
-        )
+        ),
+        sceneActiveNotificationName: sceneActiveNotificationName
     ) {
         await counter.next()
     }
@@ -482,9 +569,10 @@ func queryStateIgnoresStaleOnlyPublication() async {
     }
     #expect(becameStale)
     #expect(state.result?.isStale == false)
+    #expect(state.isSceneActiveRefetchTriggerArmed)
 
     NotificationCenter.default.post(
-        name: QueryState<Int, Int>.sceneActiveNotificationName,
+        name: sceneActiveNotificationName,
         object: nil
     )
 
@@ -886,8 +974,8 @@ func queryStateDeinitCleansUpAllResources() async {
     state = nil
     try? await Task.sleep(nanoseconds: 100_000_000)
 
-    // The weak reference must be nil: if intervalTask, sceneActiveObserver,
-    // or pathMonitor held a strong reference, the object would still be alive
+    // The weak reference must be nil: if intervalTask or the refetch trigger
+    // controller held a strong reference, the object would still be alive
     #expect(weakState == nil)
 
     // Verify the scene-active observer was removed: posting the notification

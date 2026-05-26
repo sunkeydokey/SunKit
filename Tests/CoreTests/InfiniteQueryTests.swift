@@ -466,6 +466,7 @@ func infiniteQueryStateConcurrentFetchNextPageDoesNotDuplicateAppend() async {
 func infiniteQueryStateRefetchesOnSceneActiveNotification() async {
     let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
     let counter = InfiniteValueCounter()
+    let sceneActiveNotificationName = Notification.Name("infiniteQueryStateRefetchesOnSceneActiveNotification-\(UUID().uuidString)")
     let query = InfiniteQuery<Int, String>(
         key: ["swiftui", "infinite", "scene-active"],
         initialPageParam: 0,
@@ -479,15 +480,17 @@ func infiniteQueryStateRefetchesOnSceneActiveNotification() async {
             refetchOnSubscribe: .always,
             refetchOnSceneActive: .always,
             refetchOnNetworkReconnect: .never
-        )
+        ),
+        sceneActiveNotificationName: sceneActiveNotificationName
     )
 
     state.start(using: client)
-    #expect(await eventuallyOnMainActor { state.pages == ["page-1"] })
-    try? await Task.sleep(nanoseconds: 20_000_000)
+    #expect(await eventuallyOnMainActor {
+        state.pages == ["page-1"] && state.isSceneActiveRefetchTriggerArmed
+    })
 
     NotificationCenter.default.post(
-        name: InfiniteQueryState<Int, String, InfiniteData<Int, String>>.sceneActiveNotificationName,
+        name: sceneActiveNotificationName,
         object: nil
     )
 

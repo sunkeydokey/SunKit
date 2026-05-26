@@ -3,7 +3,6 @@ import UIKit
 #elseif canImport(AppKit)
 import AppKit
 #endif
-import Network
 import Observation
 import SunKit
 
@@ -71,12 +70,11 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     @ObservationIgnored nonisolated(unsafe) private var nextPageTask: Task<Void, Never>?
     @ObservationIgnored private var lastSuccessfulData: SelectedValue?
     @ObservationIgnored private var lastSuccessfulRawData: InfiniteData<PageParam, Page>?
-    @ObservationIgnored nonisolated(unsafe) private var sceneActiveObserver: NSObjectProtocol?
-    @ObservationIgnored nonisolated(unsafe) private var pathMonitor: NWPathMonitor?
-    @ObservationIgnored nonisolated(unsafe) private var pathMonitorQueue: DispatchQueue?
+    @ObservationIgnored nonisolated(unsafe) private var triggerController: RefetchTriggerController?
     @ObservationIgnored private var isObserving = false
     @ObservationIgnored private var currentEnabled: Bool
     @ObservationIgnored nonisolated(unsafe) private var generation: UInt64 = 0
+    @ObservationIgnored private let sceneActiveNotificationName: Notification.Name
 
     static var sceneActiveNotificationName: Notification.Name {
         #if canImport(UIKit)
@@ -88,31 +86,62 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         #endif
     }
 
+    var isSceneActiveRefetchTriggerArmed: Bool {
+        triggerController?.isSceneActiveArmed == true
+    }
+
+    var isNetworkReconnectRefetchTriggerArmed: Bool {
+        triggerController?.isNetworkReconnectArmed == true
+    }
+
     /// Creates observable infinite query state.
     ///
     /// - Parameters:
     ///   - query: The infinite query declaration to observe and fetch.
     ///   - options: Observer options that control initial fetch behavior.
-    public init(
+    public convenience init(
         query: InfiniteQuery<PageParam, Page>,
         options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>
+    ) {
+        self.init(
+            query: query,
+            options: options,
+            sceneActiveNotificationName: Self.sceneActiveNotificationName
+        )
+    }
+
+    internal init(
+        query: InfiniteQuery<PageParam, Page>,
+        options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>,
+        sceneActiveNotificationName: Notification.Name
     ) {
         self.query = query
         self.options = options
         self.currentEnabled = options.enabled
+        self.sceneActiveNotificationName = sceneActiveNotificationName
+    }
+
+    internal convenience init(
+        options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>
+    ) {
+        self.init(
+            options: options,
+            sceneActiveNotificationName: Self.sceneActiveNotificationName
+        )
     }
 
     internal init(
-        options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>
+        options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>,
+        sceneActiveNotificationName: Notification.Name
     ) {
         self.query = nil
         self.options = options
         self.currentEnabled = options.enabled
+        self.sceneActiveNotificationName = sceneActiveNotificationName
     }
 
     deinit {
-        stopSceneActiveObserver()
-        stopNetworkMonitor()
+        stopRefetchTriggers()
         subscriptionTask?.cancel()
         fetchTask?.cancel()
         nextPageTask?.cancel()
@@ -188,8 +217,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
                         self.apply(result, for: observedKey)
                     }
                     guard self.generation == gen else { return }
-                    self.startSceneActiveObserver(using: client)
-                    self.startNetworkMonitor(using: client)
+                    self.startRefetchTriggers(using: client)
                 }
             } else {
                 startCurrentKey(using: client)
@@ -198,8 +226,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         }
 
         if wasEnabled, !enabled {
-            stopSceneActiveObserver()
-            stopNetworkMonitor()
+            stopRefetchTriggers()
             return
         }
 
@@ -211,8 +238,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     /// Stops observing query publications and cancels active state tasks.
     public func stop() {
         generation += 1
-        stopSceneActiveObserver()
-        stopNetworkMonitor()
+        stopRefetchTriggers()
         isObserving = false
         subscriptionTask?.cancel()
         subscriptionTask = nil
@@ -315,25 +341,29 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
             }
 
             guard self.generation == gen else { return }
-            self.startSceneActiveObserver(using: client)
-            self.startNetworkMonitor(using: client)
+            self.startRefetchTriggers(using: client)
         }
     }
 
-    private func startSceneActiveObserver(using client: QueryClient) {
-        guard options.refetchOnSceneActive != .never else { return }
+    private func startRefetchTriggers(using client: QueryClient) {
+        guard currentEnabled else { return }
         let gen = generation
-        sceneActiveObserver = NotificationCenter.default.addObserver(
-            forName: Self.sceneActiveNotificationName,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                guard self.generation == gen else { return }
+
+        let controller = RefetchTriggerController(sceneActiveNotificationName: sceneActiveNotificationName)
+        if options.refetchOnSceneActive != .never {
+            controller.startSceneActive { [weak self] in
+                guard let self, self.generation == gen else { return }
                 await self.handleSceneActive(using: client)
             }
         }
+        if options.refetchOnNetworkReconnect != .never {
+            controller.startNetworkReconnect { [weak self] in
+                guard let self, self.generation == gen else { return }
+                await self.handleNetworkReconnect(using: client)
+            }
+        }
+
+        triggerController = controller
     }
 
     @MainActor
@@ -343,42 +373,6 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         }
     }
 
-    private nonisolated func stopSceneActiveObserver() {
-        if let observer = sceneActiveObserver {
-            NotificationCenter.default.removeObserver(observer)
-            sceneActiveObserver = nil
-        }
-    }
-
-    private func startNetworkMonitor(using client: QueryClient) {
-        guard options.refetchOnNetworkReconnect != .never else { return }
-        let gen = generation
-        let monitor = NWPathMonitor()
-        let queue = DispatchQueue(label: "sunkit.infinite-network-monitor", qos: .utility)
-        nonisolated(unsafe) var isFirstUpdate = true
-        nonisolated(unsafe) var previouslySatisfied = false
-        monitor.pathUpdateHandler = { [weak self] path in
-            let nowSatisfied = path.status == .satisfied
-            if isFirstUpdate {
-                isFirstUpdate = false
-                previouslySatisfied = nowSatisfied
-                return
-            }
-            guard nowSatisfied, !previouslySatisfied else {
-                previouslySatisfied = nowSatisfied
-                return
-            }
-            previouslySatisfied = true
-            Task { @MainActor [weak self] in
-                guard let self, self.generation == gen else { return }
-                await self.handleNetworkReconnect(using: client)
-            }
-        }
-        monitor.start(queue: queue)
-        pathMonitor = monitor
-        pathMonitorQueue = queue
-    }
-
     @MainActor
     func handleNetworkReconnect(using client: QueryClient) async {
         if await shouldFetch(options.refetchOnNetworkReconnect, key: key, using: client) {
@@ -386,10 +380,9 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         }
     }
 
-    private nonisolated func stopNetworkMonitor() {
-        pathMonitor?.cancel()
-        pathMonitor = nil
-        pathMonitorQueue = nil
+    private nonisolated func stopRefetchTriggers() {
+        triggerController?.stop()
+        triggerController = nil
     }
 
     private func apply(

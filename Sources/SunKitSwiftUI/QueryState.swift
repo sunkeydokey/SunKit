@@ -3,7 +3,6 @@ import UIKit
 #elseif canImport(AppKit)
 import AppKit
 #endif
-import Network
 import Observation
 import SunKit
 
@@ -32,13 +31,12 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     @ObservationIgnored nonisolated(unsafe) private var fetchTask: Task<Void, Never>?
     @ObservationIgnored private var lastSuccessfulData: SelectedValue?
     @ObservationIgnored nonisolated(unsafe) private var intervalTask: Task<Void, Never>?
-    @ObservationIgnored nonisolated(unsafe) private var sceneActiveObserver: NSObjectProtocol?
-    @ObservationIgnored nonisolated(unsafe) private var pathMonitor: NWPathMonitor?
-    @ObservationIgnored nonisolated(unsafe) private var pathMonitorQueue: DispatchQueue?
+    @ObservationIgnored nonisolated(unsafe) private var triggerController: RefetchTriggerController?
     @ObservationIgnored private var isObserving = false
     @ObservationIgnored private var currentEnabled: Bool
     @ObservationIgnored nonisolated(unsafe) private var generation: UInt64 = 0
     @ObservationIgnored private var fetch: @Sendable () async throws -> RawValue
+    @ObservationIgnored private let sceneActiveNotificationName: Notification.Name
 
     static var sceneActiveNotificationName: Notification.Name {
         #if canImport(UIKit)
@@ -48,6 +46,14 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
         #else
         return Notification.Name("_QueryStateSceneActive")
         #endif
+    }
+
+    var isSceneActiveRefetchTriggerArmed: Bool {
+        triggerController?.isSceneActiveArmed == true
+    }
+
+    var isNetworkReconnectRefetchTriggerArmed: Bool {
+        triggerController?.isNetworkReconnectArmed == true
     }
 
     /// Creates observable query state from an async throwing raw-value fetcher.
@@ -61,10 +67,26 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     ///     executing client's defaults.
     ///   - options: Observer options that control initial fetch behavior.
     ///   - fetch: The async operation that loads the query value.
-    public init(
+    public convenience init(
         key: [AnyQueryKeyPart],
         queryOptions: QueryOptions? = nil,
         options: QueryObserverOptions<RawValue, SelectedValue>,
+        fetch: @escaping @Sendable () async throws -> RawValue
+    ) {
+        self.init(
+            key: key,
+            queryOptions: queryOptions,
+            options: options,
+            sceneActiveNotificationName: Self.sceneActiveNotificationName,
+            fetch: fetch
+        )
+    }
+
+    internal init(
+        key: [AnyQueryKeyPart],
+        queryOptions: QueryOptions? = nil,
+        options: QueryObserverOptions<RawValue, SelectedValue>,
+        sceneActiveNotificationName: Notification.Name,
         fetch: @escaping @Sendable () async throws -> RawValue
     ) {
         self.key = QueryKey(key)
@@ -72,12 +94,12 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
         self.options = options
         self.fetch = fetch
         self.currentEnabled = options.enabled
+        self.sceneActiveNotificationName = sceneActiveNotificationName
     }
 
     deinit {
         stopIntervalTimer()
-        stopSceneActiveObserver()
-        stopNetworkMonitor()
+        stopRefetchTriggers()
         subscriptionTask?.cancel()
         fetchTask?.cancel()
 
@@ -153,8 +175,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
                     }
                     guard self.generation == gen else { return }
                     self.startIntervalTimer(using: client)
-                    self.startSceneActiveObserver(using: client)
-                    self.startNetworkMonitor(using: client)
+                    self.startRefetchTriggers(using: client)
                 }
             } else {
                 startCurrentKey(using: client)
@@ -164,8 +185,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
 
         if wasEnabled, !enabled {
             stopIntervalTimer()
-            stopSceneActiveObserver()
-            stopNetworkMonitor()
+            stopRefetchTriggers()
             return
         }
 
@@ -208,8 +228,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
 
             guard self.generation == gen else { return }
             self.startIntervalTimer(using: client)
-            self.startSceneActiveObserver(using: client)
-            self.startNetworkMonitor(using: client)
+            self.startRefetchTriggers(using: client)
         }
     }
 
@@ -233,8 +252,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     public func stop() {
         generation += 1
         stopIntervalTimer()
-        stopSceneActiveObserver()
-        stopNetworkMonitor()
+        stopRefetchTriggers()
         isObserving = false
         subscriptionTask?.cancel()
         subscriptionTask = nil
@@ -251,20 +269,25 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
         }
     }
 
-    private func startSceneActiveObserver(using client: QueryClient) {
-        guard options.refetchOnSceneActive != .never else { return }
+    private func startRefetchTriggers(using client: QueryClient) {
+        guard currentEnabled else { return }
         let gen = generation
-        sceneActiveObserver = NotificationCenter.default.addObserver(
-            forName: Self.sceneActiveNotificationName,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                guard self.generation == gen else { return }
+
+        let controller = RefetchTriggerController(sceneActiveNotificationName: sceneActiveNotificationName)
+        if options.refetchOnSceneActive != .never {
+            controller.startSceneActive { [weak self] in
+                guard let self, self.generation == gen else { return }
                 await self.handleSceneActive(using: client)
             }
         }
+        if options.refetchOnNetworkReconnect != .never {
+            controller.startNetworkReconnect { [weak self] in
+                guard let self, self.generation == gen else { return }
+                await self.handleNetworkReconnect(using: client)
+            }
+        }
+
+        triggerController = controller
     }
 
     @MainActor
@@ -274,42 +297,6 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
         }
     }
 
-    private nonisolated func stopSceneActiveObserver() {
-        if let observer = sceneActiveObserver {
-            NotificationCenter.default.removeObserver(observer)
-            sceneActiveObserver = nil
-        }
-    }
-
-    private func startNetworkMonitor(using client: QueryClient) {
-        guard options.refetchOnNetworkReconnect != .never else { return }
-        let gen = generation
-        let monitor = NWPathMonitor()
-        let queue = DispatchQueue(label: "sunkit.network-monitor", qos: .utility)
-        nonisolated(unsafe) var isFirstUpdate = true
-        nonisolated(unsafe) var previouslySatisfied = false
-        monitor.pathUpdateHandler = { [weak self] path in
-            let nowSatisfied = path.status == .satisfied
-            if isFirstUpdate {
-                isFirstUpdate = false
-                previouslySatisfied = nowSatisfied
-                return
-            }
-            guard nowSatisfied, !previouslySatisfied else {
-                previouslySatisfied = nowSatisfied
-                return
-            }
-            previouslySatisfied = true
-            Task { @MainActor [weak self] in
-                guard let self, self.generation == gen else { return }
-                await self.handleNetworkReconnect(using: client)
-            }
-        }
-        monitor.start(queue: queue)
-        pathMonitor = monitor
-        pathMonitorQueue = queue
-    }
-
     @MainActor
     private func handleNetworkReconnect(using client: QueryClient) async {
         if await shouldFetch(options.refetchOnNetworkReconnect, key: key, using: client) {
@@ -317,10 +304,9 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
         }
     }
 
-    private nonisolated func stopNetworkMonitor() {
-        pathMonitor?.cancel()
-        pathMonitor = nil
-        pathMonitorQueue = nil
+    private nonisolated func stopRefetchTriggers() {
+        triggerController?.stop()
+        triggerController = nil
     }
 
     private func startIntervalTimer(using client: QueryClient) {
