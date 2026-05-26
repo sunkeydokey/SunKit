@@ -27,7 +27,8 @@ public struct AnyParallelQuery: Sendable {
 /// Results returned by parallel query batch execution.
 ///
 /// Look up values with the original typed `QueryKey<Value>`. Missing keys
-/// return `nil`; no user-visible casting is required.
+/// return `nil`; no user-visible casting is required. A failed query that ran
+/// is still present as a `QueryResult` with `isError == true`.
 public struct ParallelQueryResults: Sendable {
     private let storage: [QueryCacheID: any AnyParallelQueryResultBox]
 
@@ -36,6 +37,10 @@ public struct ParallelQueryResults: Sendable {
     }
 
     /// Returns the typed result for a query key when it was part of the batch.
+    ///
+    /// A `nil` value means the batch result has no stored result for this typed
+    /// key. It does not mean that a query failed; failures are returned as
+    /// `QueryResult` values.
     public subscript<Value: Sendable>(key: QueryKey<Value>) -> QueryResult<Value>? {
         storage[QueryCacheID(key)]?.queryResult()
     }

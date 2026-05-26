@@ -99,5 +99,7 @@ same as single-query execution.
 
 The batch itself does not throw. A failed query is returned as a failed
 `QueryResult` for that key while other query results remain available.
+Looking up a key returns `nil` only when the batch result has no stored result
+for that typed key; failure is represented by `QueryResult.isError`.
 Duplicate typed keys in one batch use first-wins semantics. `InfiniteQuery`
 batching is not part of v0.1.

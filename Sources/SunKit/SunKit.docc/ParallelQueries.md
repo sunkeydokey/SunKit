@@ -37,6 +37,10 @@ let projects = results[projectsKey]
 the raw `AnyQueryKey` parts plus the `Value` type. The same raw key with
 different value types remains separate.
 
+Looking up a key returns `nil` only when the batch result storage has no value
+for that typed key. A query that ran and failed is still stored as a
+`QueryResult` with `isError == true` and an `error` value.
+
 ## Failure and Dedupe
 
 `fetchQueries(_:)` does not throw. Each query returns its own `QueryResult`, so

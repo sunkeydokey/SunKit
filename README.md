@@ -343,6 +343,10 @@ var body: some View {
 }
 ```
 
+`batch.result?[key] == nil` means the batch has no result stored for that typed
+key. A query that ran and failed is still present as a `QueryResult` with
+`isError == true`; inspect `error` to handle that failure.
+
 ## Documentation
 
 DocC articles live in `Sources/SunKit/SunKit.docc`.
