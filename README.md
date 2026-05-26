@@ -118,6 +118,10 @@ await client.invalidate(key: key)
 await client.invalidateQueries(AnyQueryKey("repositories"))
 ```
 
+Invalidating an active query starts a background refetch when the client has a
+previous fetcher. If that typed key is already fetching, the invalidation
+refetch joins the existing in-flight task instead of forcing another request.
+
 ### Completion-based fetchers
 
 Wrap legacy completion APIs with the built-in bridge:

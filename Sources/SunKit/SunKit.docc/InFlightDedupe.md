@@ -12,6 +12,11 @@ This means a query key is a cache identity and a fetch semantics contract. If
 two different fetchers compete for the same key, whichever request starts first
 defines the shared result for that in-flight operation.
 
+Invalidation uses the same path. If an active invalidated query already has an
+in-flight fetch for the same typed key, the invalidation refetch joins that task
+instead of cancelling it, queueing a follow-up fetch, or forcing a second
+request.
+
 ```swift
 async let first = client.fetchQuery(projectsQuery)
 async let second = client.fetchQuery(projectsQuery)

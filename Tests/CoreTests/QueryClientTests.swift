@@ -785,6 +785,35 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     await subscription.cancel()
 }
 
+@Test func invalidateKeyDuringInFlightFetchJoinsExistingFetch() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let counter = FetchCounter()
+    let gate = ParallelGate()
+    let key = QueryKey<Int>("value")
+    let initialQuery = Query(key: key) {
+        await counter.next()
+    }
+    let slowQuery = Query(key: key) {
+        let value = await counter.next()
+        await gate.arriveAndWait()
+        return value
+    }
+
+    _ = await client.fetchQuery(initialQuery)
+    let subscription = await client.subscribe(to: key, receiveCurrentValue: false) { _ in }
+
+    async let slowResult = client.fetchQuery(slowQuery)
+    #expect(await eventually { await gate.startedCount() == 1 })
+
+    await client.invalidate(key: key)
+    await gate.releaseAll()
+    _ = await slowResult
+
+    #expect(await counter.value() == 2)
+    #expect(await client.getQueryData(key) == 2)
+    await subscription.cancel()
+}
+
 @Test func invalidateKeyOnInactiveQueryDoesNotImmediatelyRefetch() async {
     let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
     let counter = FetchCounter()
@@ -858,6 +887,35 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     #expect(await client.getQueryData(inactiveKey) == 1)
     #expect(await activeCounter.value() == 2)
     #expect(await inactiveCounter.value() == 1)
+    await subscription.cancel()
+}
+
+@Test func activePrefixInvalidationDuringInFlightFetchJoinsExistingFetch() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let counter = FetchCounter()
+    let gate = ParallelGate()
+    let key = QueryKey<Int>("items", "active")
+    let initialQuery = Query(key: key) {
+        await counter.next()
+    }
+    let slowQuery = Query(key: key) {
+        let value = await counter.next()
+        await gate.arriveAndWait()
+        return value
+    }
+
+    _ = await client.fetchQuery(initialQuery)
+    let subscription = await client.subscribe(to: key, receiveCurrentValue: false) { _ in }
+
+    async let slowResult = client.fetchQuery(slowQuery)
+    #expect(await eventually { await gate.startedCount() == 1 })
+
+    await client.invalidateQueries(AnyQueryKey("items"), exact: false)
+    await gate.releaseAll()
+    _ = await slowResult
+
+    #expect(await counter.value() == 2)
+    #expect(await client.getQueryData(key) == 2)
     await subscription.cancel()
 }
 

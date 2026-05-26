@@ -227,8 +227,9 @@ public actor QueryClient {
     /// Invalidates one typed query key exactly.
     ///
     /// If the matching query is active and has a known previous fetcher, the
-    /// client starts a background refetch. Otherwise the entry is only marked
-    /// stale.
+    /// client starts a background refetch. If that key is already fetching, the
+    /// background refetch joins the existing in-flight task instead of forcing
+    /// a second fetch. Otherwise the entry is only marked stale.
     public func invalidate<Value: Sendable>(key: QueryKey<Value>) async {
         await invalidate(id: QueryCacheID(key), key: key.rawValue, exact: true)
     }
@@ -236,7 +237,9 @@ public actor QueryClient {
     /// Invalidates queries by exact or prefix key matching.
     ///
     /// Prefix invalidation is type-erased and may match multiple value types
-    /// that share the same raw key parts.
+    /// that share the same raw key parts. Active matches refetch in the
+    /// background, joining an existing in-flight task for the same typed key
+    /// when one is already running.
     public func invalidateQueries(_ key: AnyQueryKey, exact: Bool = false) async {
         await invalidate(id: nil, key: key, exact: exact)
     }

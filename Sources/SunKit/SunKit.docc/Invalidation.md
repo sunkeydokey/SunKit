@@ -25,6 +25,10 @@ Invalidation behavior depends on activity:
   known previous fetcher.
 - Inactive query: marked stale only.
 
+When an active invalidated query is already fetching, the background refetch
+joins the existing in-flight task for that typed key. It does not cancel,
+queue, or force a second fetch.
+
 A query is active when it has at least one Core subscriber. If a subscribed
 entry has never been fetched, Core has no fetcher to run; invalidation still
 marks it stale but does not invent a fetch.
