@@ -1,11 +1,13 @@
 # SunKit
 
-SunKit is a lightweight server-state runtime for Swift apps.
+SunKit is a lightweight memory-cache and server-state management runtime for
+Swift apps.
 
 It manages query cache lifecycle, stale state, in-flight request deduplication,
 subscriptions, invalidation, mutations, and SwiftUI binding. It does not wrap a
 networking stack. Use `URLSession`, Alamofire, a generated SDK, or any async
-operation that fits your app.
+operation that fits your app. The v0.1 preview is SwiftUI-first and scoped to
+mobile Apple platform MVPs, not a broad production-ready data framework.
 
 ## Requirements
 
@@ -15,13 +17,14 @@ operation that fits your app.
 
 ## Status
 
-SunKit is pre-1.0. The current focus is a mobile MVP for iOS 18, tvOS 18,
-macOS 15, Swift 6, and Xcode 16.
+SunKit is pre-1.0. The current focus is a SwiftUI-first mobile MVP for iOS 18,
+tvOS 18, macOS 15, Swift 6, and Xcode 16.
 
 Implemented scope:
 
 - Typed query keys and type-safe cache access
 - Actor-isolated `QueryClient`
+- In-memory query cache lifecycle
 - `fetchQuery`, `ensureQueryData`, in-flight dedupe, retry, stale data on failure
 - Query invalidation, removal, manual cache writes, and cache GC
 - Core mutations with explicit invalidation or cache updates

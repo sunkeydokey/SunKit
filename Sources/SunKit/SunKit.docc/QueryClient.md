@@ -1,12 +1,17 @@
 # QueryClient
 
-Use `QueryClient` as the actor-isolated runtime for query cache state.
+Use `QueryClient` as the actor-isolated runtime for in-memory query cache
+state.
 
 ## Overview
 
 `QueryClient` owns cache storage, in-flight fetches, subscriptions, and
 invalidation scope. It is not `@MainActor`; UI adapters choose how to deliver
 changes to the main actor or a dispatch queue.
+
+The v0.1 cache is memory-only. It is intended for server-state lifecycle
+management while the app process is alive; it does not persist data to disk or
+resume offline mutations after restart.
 
 Most apps should keep a long-lived client near the app root and inject it into
 feature code. SunKit does not provide a process-global singleton, and separate
