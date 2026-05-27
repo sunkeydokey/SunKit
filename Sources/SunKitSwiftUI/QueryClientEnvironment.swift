@@ -6,6 +6,11 @@ private struct QueryClientKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    var configuredQueryClient: QueryClient? {
+        get { self[QueryClientKey.self] }
+        set { self[QueryClientKey.self] = newValue }
+    }
+
     /// The query client used by SunKit SwiftUI views in this environment.
     ///
     /// This value must be provided with ``View/queryClient(_:)`` near the app
@@ -13,7 +18,7 @@ extension EnvironmentValues {
     /// error and terminates with `fatalError`.
     public var queryClient: QueryClient {
         get {
-            guard let client = self[QueryClientKey.self] else {
+            guard let client = configuredQueryClient else {
                 fatalError(
                     "SunKitSwiftUI requires a QueryClient in the SwiftUI environment. " +
                     "Add `.queryClient(QueryClient(...))` near your app or scene root " +
@@ -22,11 +27,11 @@ extension EnvironmentValues {
             }
             return client
         }
-        set { self[QueryClientKey.self] = newValue }
+        set { configuredQueryClient = newValue }
     }
 
     var isQueryClientConfigured: Bool {
-        self[QueryClientKey.self] != nil
+        configuredQueryClient != nil
     }
 }
 
@@ -36,6 +41,6 @@ extension View {
     /// Use this modifier near the root of an app or scene so child query views
     /// share the same cache scope.
     public func queryClient(_ client: QueryClient) -> some View {
-        environment(\.queryClient, client)
+        environment(\.configuredQueryClient, client)
     }
 }
