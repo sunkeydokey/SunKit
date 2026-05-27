@@ -1,6 +1,6 @@
 # SunKit
 
-[한국어 README](docs/README.ko.md)
+[한국어 README](DOCS/README.ko.md)
 
 SunKit is a lightweight memory-cache and server-state management runtime for
 Swift apps.
