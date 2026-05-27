@@ -76,6 +76,9 @@ AGENTS.md
 .codex/
 .agent/
 docs/
+!DOCS/
+docs/*
+!DOCS/README.ko.md
 
 # xcode-build-server files
 buildServer.json

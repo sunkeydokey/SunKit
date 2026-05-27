@@ -1,5 +1,7 @@
 # SunKit
 
+[한국어 README](DOCS/README.ko.md)
+
 SunKit is a lightweight memory-cache and server-state management runtime for
 Swift apps.
 
@@ -8,6 +10,11 @@ subscriptions, invalidation, mutations, and SwiftUI binding. It does not wrap a
 networking stack. Use `URLSession`, Alamofire, a generated SDK, or any async
 operation that fits your app. The v0.1 preview is SwiftUI-first and scoped to
 mobile Apple platform MVPs, not a broad production-ready data framework.
+
+SunKit's core rule is simple: the query key is the source of truth. A key should
+describe the server data being read, not the view that happens to read it. When
+the same typed key appears in two places, SunKit treats those reads as the same
+cache identity and the same fetch semantics.
 
 ## Requirements
 
@@ -52,7 +59,7 @@ Or add it to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/sunkeydokey/SunKit", from: "0.1.0")
+    .package(url: "https://github.com/sunkeydokey/SunKit", from: "0.1.1")
 ],
 targets: [
     .target(
@@ -89,6 +96,14 @@ let result = await client.fetchQuery(query)
 let project = result.data
 ```
 
+## Query Keys
+
+In SunKit, cache correctness starts with the key. A `QueryKey<Value>` is both:
+
+- the identity used for cache lookup, invalidation, in-flight dedupe, and manual
+  cache writes
+- the typed contract for the value stored at that identity
+
 `QueryKey<Value>` includes the value type in the cache identity. The same raw
 parts with different `Value` types do not collide.
 
@@ -102,6 +117,41 @@ let key = QueryKey<[Repository]>(
     locale.identifier
 )
 ```
+
+This includes page, filter, search text, auth scope, locale, endpoint, feature
+flag, and any other value that can change the data returned by the fetcher. If a
+value changes the response but is not part of the key, different server states
+will share one cache slot.
+
+Prefer small key factories when a key is reused in multiple places:
+
+```swift
+enum ProjectQueries {
+    static func project(_ id: Project.ID) -> QueryKey<Project> {
+        QueryKey("project", id)
+    }
+
+    static func issues(
+        projectID: Project.ID,
+        state: IssueState
+    ) -> QueryKey<[Issue]> {
+        QueryKey("project", projectID, "issues", state.rawValue)
+    }
+}
+
+let key = ProjectQueries.project(projectID)
+let query = Query(key: key) {
+    try await api.project(id: projectID)
+}
+```
+
+Key factories are not required, but they make the identity contract visible. Two
+views using `ProjectQueries.project(id)` join the same in-flight request, read
+the same cached result, and respond to the same invalidation.
+
+Do not reuse one key for different fetch semantics. If two fetchers compete for
+the same typed key, the first in-flight request wins dedupe and later results may
+not represent the fetcher a caller expected.
 
 Manual cache access stays typed:
 
@@ -120,6 +170,10 @@ Invalidate exact typed keys or type-erased prefixes:
 await client.invalidate(key: key)
 await client.invalidateQueries(AnyQueryKey("repositories"))
 ```
+
+Prefix invalidation follows the ordered key parts. `AnyQueryKey("project",
+projectID)` matches `["project", projectID, "issues", state]`, but not
+`["project", otherID, ...]`.
 
 Invalidating an active query starts a background refetch when the client has a
 previous fetcher. If that typed key is already fetching, the invalidation
@@ -199,6 +253,9 @@ struct FollowersView: View {
 `QueryBinding` owns a stable `QueryState` engine through SwiftUI `@State`.
 The view modifier supplies the latest key, fetcher, and `enabled` flag from
 `body`, then starts, updates, and stops the state with the environment client.
+The key still carries the identity contract: changing `username` changes the key,
+so the view observes a different cache entry instead of overwriting the previous
+user's followers.
 
 Direct `QueryState` lifecycle is still available when you need manual control:
 
