@@ -583,10 +583,22 @@ func infiniteQueryStateIgnoresStaleOnlyPublication() async {
     state.start(using: client)
 
     #expect(await eventuallyOnMainActor { state.pages == ["page-1"] && state.result?.isStale == false })
+    let flag = ObservationFlag()
+    withObservationTracking {
+        _ = state.pages
+        _ = state.pageParams
+    } onChange: {
+        Task { @MainActor in
+            flag.didChange = true
+        }
+    }
+
     let becameStale = await eventually {
         await client.isQueryStale(key)
     }
     #expect(becameStale)
+    try? await Task.sleep(nanoseconds: 50_000_000)
+    #expect(!flag.didChange)
     #expect(state.result?.isStale == false)
     #expect(await counter.value() == 1)
     state.stop()

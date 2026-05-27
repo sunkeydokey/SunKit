@@ -396,8 +396,13 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         let selected = incoming.map(options.select)
 
         if let result, selected.differsOnlyByStaleFlag(from: result) {
+            let rawDiffersOnlyByStaleFlag = rawResult.map {
+                incoming.differsOnlyByStaleFlag(from: $0)
+            } ?? false
             rawResult = incoming
-            updateRawPageProjections(from: incoming)
+            if !rawDiffersOnlyByStaleFlag {
+                updateRawPageProjections(from: incoming)
+            }
             if incoming.isSuccess, let data = incoming.data {
                 lastSuccessfulRawData = data
             }
