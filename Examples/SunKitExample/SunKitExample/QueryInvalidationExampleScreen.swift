@@ -30,11 +30,11 @@ struct QueryInvalidationExampleScreen: View {
     var body: some View {
         Form {
             Section("Subscribed server state") {
-                if projects.result?.isFetching == true {
+                if projects.isFetching {
                     ProgressView("Refetching projects")
                 }
 
-                if let snapshot = projects.result?.data {
+                if let snapshot = projects.data {
                     LabeledContent("Server fetches", value: snapshot.fetchCount.formatted())
                     LabeledContent("Last fetched") {
                         Text(snapshot.fetchedAt.formatted(date: .omitted, time: .standard))
@@ -43,11 +43,11 @@ struct QueryInvalidationExampleScreen: View {
                     ForEach(snapshot.projects) { project in
                         Label(project.title, systemImage: "folder")
                     }
-                } else if projects.result?.isPending == true || projects.result == nil {
+                } else if projects.isPending {
                     ProgressView("Loading projects")
                 }
 
-                if let error = projects.result?.error {
+                if let error = projects.error {
                     ExampleErrorText(error)
                 }
             }
@@ -84,7 +84,7 @@ struct QueryInvalidationExampleScreen: View {
                 } label: {
                     Label("Invalidate subscribed query", systemImage: "arrow.clockwise")
                 }
-                .disabled(projects.result?.isFetching == true)
+                .disabled(projects.isFetching)
             }
         }
         .navigationTitle("Query Invalidation")

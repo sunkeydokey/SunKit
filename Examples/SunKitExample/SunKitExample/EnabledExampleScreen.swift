@@ -50,11 +50,11 @@ struct EnabledExampleScreen: View {
                     Label("username을 입력하면 자동으로 fetch가 시작됩니다.", systemImage: "info.circle")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                } else if followers.result?.isFetching == true {
+                } else if followers.isFetching {
                     Label("Fetching \(username)'s followers…", systemImage: "arrow.clockwise")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                } else if let users = followers.result?.data {
+                } else if let users = followers.data {
                     if users.isEmpty {
                         Text("팔로워가 없습니다.")
                             .foregroundStyle(.secondary)
@@ -65,12 +65,12 @@ struct EnabledExampleScreen: View {
                             }
                         }
                     }
-                } else if followers.result == nil || followers.result?.isPending == true {
+                } else if followers.isPending {
                     ProgressView("불러오는 중…")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                if let error = followers.result?.error {
+                if let error = followers.error {
                     ExampleErrorText(error)
                 }
             }

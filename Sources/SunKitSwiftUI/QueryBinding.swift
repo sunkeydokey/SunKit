@@ -134,7 +134,7 @@ public extension View {
     /// private var followers: QueryState<[GitHubUser], [GitHubUser]>
     ///
     /// var body: some View {
-    ///     List(followers.result?.data ?? []) { user in
+    ///     List(followers.data ?? []) { user in
     ///         FollowerRow(user: user)
     ///     }
     ///     .query($followers, key: ["followers", AnyQueryKeyPart(username)]) {

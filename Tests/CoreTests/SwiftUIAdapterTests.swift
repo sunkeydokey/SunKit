@@ -101,9 +101,35 @@ func queryStateSelectExposesSelectedDataAndKeepsRawCache() async {
 
     state.start(using: client)
 
-    #expect(await eventuallyOnMainActor { state.result?.data == "1,2,3" })
+    #expect(await eventuallyOnMainActor { state.data == "1,2,3" })
+    #expect(state.result?.data == "1,2,3")
+    #expect(state.isSuccess)
+    #expect(!state.isPending)
+    #expect(!state.isError)
+    #expect(!state.isFetching)
     #expect(await client.getQueryData(rawKey) == [1, 2, 3])
     state.stop()
+}
+
+@Test
+@MainActor
+func queryStatePendingReflectsEnabledBeforeResult() {
+    let enabledState = QueryState(
+        key: ["swiftui", "pending", "enabled"]
+    ) {
+        "value"
+    }
+    let disabledState = QueryState(
+        key: ["swiftui", "pending", "disabled"],
+        options: QueryObserverOptions(enabled: false)
+    ) {
+        "value"
+    }
+
+    #expect(enabledState.result == nil)
+    #expect(enabledState.isPending)
+    #expect(disabledState.result == nil)
+    #expect(!disabledState.isPending)
 }
 
 @Test
@@ -152,8 +178,10 @@ func queryStateSelectAppliesToStaleDataAfterRefetchFailure() async {
     state.start(using: client)
 
     #expect(await eventuallyOnMainActor {
-        state.result?.isError == true && state.result?.data == 9
+        state.isError && state.error != nil && state.data == 9
     })
+    #expect(state.result?.isError == true)
+    #expect(state.result?.data == 9)
     state.stop()
 }
 

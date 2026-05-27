@@ -30,24 +30,24 @@ struct QueryExampleScreen: View {
                     .accessibilityIdentifier("query.loadButton")
                 }
 
-                if followers.result?.isFetching == true {
+                if followers.isFetching {
                     Label("Fetching followers", systemImage: "arrow.clockwise")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
-                if let users = followers.result?.data {
+                if let users = followers.data {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         ForEach(users) { user in
                             FollowerRow(user: user)
                         }
                     }
-                } else if followers.result?.isPending == true || followers.result == nil {
+                } else if followers.isPending {
                     ProgressView("Loading followers")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                if let error = followers.result?.error {
+                if let error = followers.error {
                     ExampleErrorText(error)
                 }
             }

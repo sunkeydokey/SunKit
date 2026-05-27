@@ -83,13 +83,13 @@ struct SelectExampleScreen: View {
                 .buttonStyle(.borderedProminent)
             }
 
-            if followers.result?.isFetching == true {
+            if followers.isFetching {
                 Label("Fetching followers", systemImage: "arrow.clockwise")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
-            if let summary = followers.result?.data {
+            if let summary = followers.data {
                 Text("\(summary.count.formatted()) followers selected")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -104,7 +104,7 @@ struct SelectExampleScreen: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if let error = followers.result?.error {
+            if let error = followers.error {
                 ExampleErrorText(error)
             }
         }

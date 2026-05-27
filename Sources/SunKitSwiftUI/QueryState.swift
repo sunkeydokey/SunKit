@@ -17,6 +17,24 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     /// The latest selected query result, if any.
     public private(set) var result: QueryResult<SelectedValue>?
 
+    /// The latest selected query data, including stale data when a refetch fails.
+    public var data: SelectedValue? { result?.data }
+
+    /// The latest query error when the query is in an error state.
+    public var error: Error? { result?.error }
+
+    /// A Boolean value indicating whether the query is waiting for successful data.
+    public var isPending: Bool { result?.isPending ?? currentEnabled }
+
+    /// A Boolean value indicating whether the query currently has successful data.
+    public var isSuccess: Bool { result?.isSuccess == true }
+
+    /// A Boolean value indicating whether the query is in an error state.
+    public var isError: Bool { result?.isError == true }
+
+    /// A Boolean value indicating whether a fetch task is currently running.
+    public var isFetching: Bool { result?.isFetching == true }
+
     /// The cache identity observed by this state object.
     public private(set) var key: QueryKey<RawValue>
 

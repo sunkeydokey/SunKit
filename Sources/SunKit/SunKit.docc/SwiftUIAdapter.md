@@ -39,7 +39,7 @@ struct FollowersView: View {
     }
 
     var body: some View {
-        List(followers.result?.data ?? []) { user in
+        List(followers.data ?? []) { user in
             FollowerRow(user: user)
         }
         .query(

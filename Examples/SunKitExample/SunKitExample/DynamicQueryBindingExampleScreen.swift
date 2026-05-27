@@ -43,7 +43,7 @@ private struct BrokenDirectQueryCapture: View {
             Text("View input: \(username)")
                 .font(.subheadline)
 
-            if let users = followers.result?.data {
+            if let users = followers.data {
                 ForEach(users, id: \.self) { user in
                     Label(user, systemImage: "xmark.circle")
                         .foregroundStyle(.secondary)
@@ -81,11 +81,11 @@ private struct WorkingQueryBindingCapture: View {
             Text("View input: \(trimmedUsername)")
                 .font(.subheadline)
 
-            if followers.result?.isFetching == true {
+            if followers.isFetching {
                 ProgressView()
             }
 
-            if let users = followers.result?.data {
+            if let users = followers.data {
                 ForEach(users, id: \.self) { user in
                     Label(user, systemImage: "checkmark.circle")
                 }
