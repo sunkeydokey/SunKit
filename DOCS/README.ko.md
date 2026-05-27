@@ -34,6 +34,7 @@ Xcode 16을 대상으로 하는 SwiftUI 우선 모바일 MVP입니다.
 - In-memory query cache lifecycle
 - `fetchQuery`, `ensureQueryData`, in-flight dedupe, retry, failure 시 stale data 유지
 - Query invalidation, removal, manual cache write, cache GC
+- SwiftUI stale-time 조정을 위한 observer-local cache option
 - 명시적 invalidation 또는 cache update를 사용하는 Core mutation
 - Infinite query 및 parallel query convenience
 - regular, paginated, infinite, parallel, mutation flow용 SwiftUI adapter
@@ -226,6 +227,8 @@ View state에 의존하는 dynamic key 또는 fetcher에는 `@QueryBinding`과 `
 struct FollowersView: View {
     @State private var username = ""
     @QueryBinding(
+        queryOptions: QueryOptions(retry: 1),
+        cacheOptions: QueryCacheOptions(staleTime: 60),
         options: QueryObserverOptions(refetchOnSubscribe: .always)
     ) private var followers: QueryState<[GitHubUser], [GitHubUser]>
 
@@ -234,7 +237,7 @@ struct FollowersView: View {
     }
 
     var body: some View {
-        List(followers.result?.data ?? []) { user in
+        List(followers.data ?? []) { user in
             Text(user.login)
         }
         .query(
@@ -253,6 +256,12 @@ View modifier는 `body`에서 최신 key, fetcher, `enabled` flag를 공급한 �
 client로 state를 start, update, stop합니다. 여기서도 key가 identity contract를
 가집니다. `username`이 바뀌면 key가 바뀌므로, view는 이전 user의 followers를
 덮어쓰지 않고 다른 cache entry를 관찰합니다.
+
+`queryOptions`는 이 observer가 실행하는 fetch의 retry / retry delay 같은 실행 정책을
+설정합니다. `cacheOptions`는 observer의 cache lifecycle 정책을 설정합니다.
+`staleTime`은 이 `QueryState`에서 local로 평가되고, `gcTime`은 이 observer가 cache
+entry를 떠나는 마지막 subscriber일 때 inactive data 제거 예약에 사용됩니다.
+`cacheOptions`를 생략하면 client 기본값을 사용합니다.
 
 직접 제어가 필요하면 `QueryState` lifecycle을 직접 사용할 수도 있습니다.
 
@@ -287,6 +296,37 @@ QueryObserverOptions(
     refetchInterval: 30                 // seconds, nil to disable
 )
 ```
+
+### Cache option
+
+특정 observer가 client 기본값보다 data를 더 오래 또는 더 짧게 fresh로 유지해야 하면
+`QueryCacheOptions`를 사용합니다.
+
+```swift
+@QueryBinding(
+    cacheOptions: QueryCacheOptions(staleTime: 120)
+) private var repositories: QueryState<[Repository], [Repository]>
+```
+
+같은 parameter는 paginated / infinite binding에서도 사용할 수 있습니다. Pagination에서는
+최근에 load한 page를 다시 방문할 때 즉시 refetch하지 않고 cache를 재사용하는 데 유용합니다.
+
+```swift
+@PaginatedQueryBinding(
+    initialInput: "swift",
+    initialPage: 1,
+    cacheOptions: QueryCacheOptions(staleTime: 120),
+    nextPage: { $0 + 1 },
+    previousPage: { $0 - 1 },
+    canMoveToPreviousPage: { $0 > 1 }
+) private var repositories: PaginatedQueryState<String, Int, RepositoryPage, RepositoryPage>
+```
+
+Observer-local cache option을 사용하면 두 view가 같은 key를 보더라도 각자의
+`staleTime` 기준에 따라 서로 다른 `result.isStale` 값을 노출할 수 있습니다. 명시적
+invalidation은 여전히 모든 observer를 stale로 만듭니다. `gcTime`은 cache entry
+lifetime 규칙을 따릅니다. 마지막 subscriber가 떠날 때 그 subscriber의 `gcTime`이
+inactive data 제거 시점을 결정합니다.
 
 ### Select
 
@@ -354,7 +394,9 @@ infinite update는 MVP 범위가 아닙니다.
 해당 key의 successful fetch로 완료되어 invalidation state를 clear할 수 있습니다.
 
 ```swift
-@InfiniteQueryBinding() private var feed: InfiniteQueryState<Int, Post, InfiniteData<Int, Post>>
+@InfiniteQueryBinding(
+    cacheOptions: QueryCacheOptions(staleTime: 60)
+) private var feed: InfiniteQueryState<Int, Post, InfiniteData<Int, Post>>
 
 var body: some View {
     List {
