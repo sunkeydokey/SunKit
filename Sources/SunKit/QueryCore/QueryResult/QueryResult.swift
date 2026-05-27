@@ -19,11 +19,11 @@ public struct QueryStatus<Value: Sendable>: Sendable {
         Self(storage: .pending(previous: previous))
     }
 
-    internal static func success(_ value: Value) -> Self {
+    package static func success(_ value: Value) -> Self {
         Self(storage: .success(value))
     }
 
-    internal static func failure(_ error: Error, stale: Value?, failureCount: Int) -> Self {
+    package static func failure(_ error: Error, stale: Value?, failureCount: Int) -> Self {
         Self(storage: .failure(error, stale: stale, failureCount: failureCount))
     }
 }
