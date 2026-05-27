@@ -24,6 +24,7 @@ internal protocol AnyQueryCacheEntry: Sendable {
 
 internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unchecked Sendable {
     struct Subscriber: Sendable {
+        let gcTime: TimeInterval
         let queue: DispatchQueue?
         let listener: @Sendable (QueryResult<Value>) -> Void
     }
@@ -81,6 +82,7 @@ internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unch
             status: result.status,
             isFetching: result.isFetching,
             isStale: true,
+            isInvalidated: true,
             isPlaceholderData: result.isPlaceholderData,
             updatedAt: result.updatedAt
         )
@@ -92,6 +94,7 @@ internal final class QueryCacheEntry<Value: Sendable>: AnyQueryCacheEntry, @unch
             status: result.status,
             isFetching: result.isFetching,
             isStale: true,
+            isInvalidated: false,
             isPlaceholderData: result.isPlaceholderData,
             updatedAt: result.updatedAt
         )

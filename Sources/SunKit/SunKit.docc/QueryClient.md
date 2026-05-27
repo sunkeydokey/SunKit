@@ -28,8 +28,9 @@ let client = QueryClient()
 query.options ?? client.defaultQueryOptions
 ```
 
-Cache lifecycle defaults come from `defaultCacheOptions`. MVP Core does not
-include per-query cache overrides or per-key default merging.
+Cache lifecycle defaults come from `defaultCacheOptions`. SwiftUI observers can
+provide per-observer `QueryCacheOptions` for stale checks and subscription GC
+time without changing the stored cache identity.
 
 Successful results become stale according to `defaultCacheOptions.staleTime`.
 For nonzero stale times, `QueryClient` publishes a new result with
@@ -40,12 +41,13 @@ failure result and keep any existing stale data available. Explicit
 `invalidate(key:)` and `invalidateQueries(_:exact:)` calls are the only APIs
 that mark entries invalidated.
 
-Use `isQueryStale(_:)` when an observer needs to decide whether an `.ifStale`
-trigger should fetch. Missing entries are stale. Existing entries are stale
-when invalidated, when they have no successful update time, or when their
-freshness window has elapsed. This cache-level freshness check is different
-from `QueryResult.isStale`, which describes one delivered result snapshot and
-can be `true` when a failed refetch keeps stale data available.
+Use `isQueryStale(_:cacheOptions:)` when an observer needs to decide whether an
+`.ifStale` trigger should fetch. Missing entries are stale. Existing entries are
+stale when invalidated, when they have no successful update time, or when their
+freshness window has elapsed under the supplied cache options or the client
+defaults. This cache-level freshness check is different from
+`QueryResult.isStale`, which describes one delivered result snapshot and can be
+`true` when a failed refetch keeps stale data available.
 
 ## Typed Cache Access
 

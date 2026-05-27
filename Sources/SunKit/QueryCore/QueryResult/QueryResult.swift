@@ -69,6 +69,8 @@ public struct QueryResult<Value: Sendable>: Sendable {
     /// cache entry's freshness.
     public let isStale: Bool
 
+    package let isInvalidated: Bool
+
     /// A Boolean value indicating whether `data` is placeholder data.
     public let isPlaceholderData: Bool
 
@@ -82,6 +84,7 @@ public struct QueryResult<Value: Sendable>: Sendable {
         status: QueryStatus<Value>,
         isFetching: Bool = false,
         isStale: Bool = false,
+        isInvalidated: Bool = false,
         isPlaceholderData: Bool = false,
         updatedAt: Date? = nil
     ) {
@@ -92,6 +95,7 @@ public struct QueryResult<Value: Sendable>: Sendable {
         self.status = status
         self.isFetching = isFetching
         self.isStale = isStale
+        self.isInvalidated = isInvalidated
         self.isPlaceholderData = isPlaceholderData
         self.updatedAt = updatedAt
 
@@ -143,6 +147,7 @@ public struct QueryResult<Value: Sendable>: Sendable {
             status: mappedStatus,
             isFetching: isFetching,
             isStale: isStale,
+            isInvalidated: isInvalidated,
             isPlaceholderData: isPlaceholderData,
             updatedAt: updatedAt
         )

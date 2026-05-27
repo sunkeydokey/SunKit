@@ -45,6 +45,7 @@ public actor QueryClient {
         let previousData = entry.result.data
         let previousFailureCount = entry.result.failureCount
         let previousUpdatedAt = entry.updatedAt
+        let wasInvalidated = entry.isInvalidated
         entry.requestID = issueRequestID()
         let requestID = entry.requestID
         entry.lastQuery = query
@@ -53,6 +54,7 @@ public actor QueryClient {
             status: .pending(previous: previousData),
             isFetching: true,
             isStale: entry.isStale(now: now, cacheOptions: defaultCacheOptions),
+            isInvalidated: wasInvalidated,
             updatedAt: previousUpdatedAt
         )
         entry.result = pending
@@ -64,6 +66,7 @@ public actor QueryClient {
                 stale: previousData,
                 previousUpdatedAt: previousUpdatedAt,
                 previousFailureCount: previousFailureCount,
+                isInvalidated: wasInvalidated,
                 cacheOptions: defaultCacheOptions
             )
         }
@@ -193,15 +196,19 @@ public actor QueryClient {
     ///
     /// Missing cache entries are treated as stale. UI adapters can use this to
     /// decide whether `.ifStale` observer triggers should start a fetch without
-    /// relying on stale-only result publications. This cache-level freshness
-    /// check is distinct from `QueryResult.isStale`, which describes one
-    /// delivered result snapshot.
-    public func isQueryStale<Value: Sendable>(_ key: QueryKey<Value>) async -> Bool {
+    /// relying on stale-only result publications. Pass `cacheOptions` to evaluate
+    /// freshness with observer-local cache options instead of the client's
+    /// defaults. This cache-level freshness check is distinct from
+    /// `QueryResult.isStale`, which describes one delivered result snapshot.
+    public func isQueryStale<Value: Sendable>(
+        _ key: QueryKey<Value>,
+        cacheOptions: QueryCacheOptions? = nil
+    ) async -> Bool {
         guard let entry = existingEntry(for: key) else {
             return true
         }
 
-        return entry.isStale(now: Date(), cacheOptions: defaultCacheOptions)
+        return entry.isStale(now: Date(), cacheOptions: cacheOptions ?? defaultCacheOptions)
     }
 
     /// Subscribes to result changes for a typed query key.
@@ -210,16 +217,26 @@ public actor QueryClient {
     /// value. It never starts a fetch by itself. If `deliverOn` is `nil`, Core
     /// schedules listener work asynchronously without a public ordering
     /// guarantee for rapid consecutive publications.
+    ///
+    /// The optional `gcTime` is used for this subscriber when it is the last
+    /// observer to leave the cache entry. When omitted,
+    /// `defaultCacheOptions.gcTime` is used for this subscriber.
     public func subscribe<Value: Sendable>(
         to key: QueryKey<Value>,
         receiveCurrentValue: Bool = true,
+        gcTime: TimeInterval? = nil,
         deliverOn queue: DispatchQueue? = nil,
         _ listener: @escaping @Sendable (QueryResult<Value>) -> Void
     ) async -> QuerySubscription {
         let entry = entry(for: key)
         entry.cancelGCTimer()
+        let effectiveGCTime = gcTime ?? defaultCacheOptions.gcTime
         let id = UUID()
-        let subscriber = QueryCacheEntry.Subscriber(queue: queue, listener: listener)
+        let subscriber = QueryCacheEntry.Subscriber(
+            gcTime: effectiveGCTime,
+            queue: queue,
+            listener: listener
+        )
         entry.subscribers[id] = subscriber
 
         if receiveCurrentValue {
@@ -287,7 +304,7 @@ public actor QueryClient {
         )
         scheduleStaleTimer(for: entry, updatedAt: now)
         if entry.subscriberCount == 0 {
-            scheduleGCTimer(for: entry)
+            scheduleGCTimer(for: entry, gcTime: defaultCacheOptions.gcTime)
         }
         deliver(entry.deliveries(for: entry.result))
     }
@@ -321,7 +338,7 @@ public actor QueryClient {
         )
         scheduleStaleTimer(for: entry, updatedAt: now)
         if entry.subscriberCount == 0 {
-            scheduleGCTimer(for: entry)
+            scheduleGCTimer(for: entry, gcTime: defaultCacheOptions.gcTime)
         }
         deliver(entry.deliveries(for: entry.result))
     }
@@ -464,7 +481,7 @@ public actor QueryClient {
             scheduleStaleTimer(for: entry, updatedAt: updatedAt)
         }
         if entry.subscriberCount == 0 {
-            scheduleGCTimer(for: entry)
+            scheduleGCTimer(for: entry, gcTime: defaultCacheOptions.gcTime)
         }
 
         return entry.deliveries(for: result)
@@ -487,9 +504,11 @@ public actor QueryClient {
         deliver(entry.markStale())
     }
 
-    private func scheduleGCTimer<Value: Sendable>(for entry: QueryCacheEntry<Value>) {
+    private func scheduleGCTimer<Value: Sendable>(
+        for entry: QueryCacheEntry<Value>,
+        gcTime: TimeInterval
+    ) {
         entry.cancelGCTimer()
-        let gcTime = defaultCacheOptions.gcTime
         guard gcTime > 0 else {
             removeEntry(key: entry.typedKey)
             return
@@ -543,9 +562,9 @@ public actor QueryClient {
             return
         }
 
-        entry.subscribers[id] = nil
+        let subscriber = entry.subscribers.removeValue(forKey: id)
         if entry.subscriberCount == 0 {
-            scheduleGCTimer(for: entry)
+            scheduleGCTimer(for: entry, gcTime: subscriber?.gcTime ?? defaultCacheOptions.gcTime)
         }
     }
 
@@ -561,6 +580,7 @@ public actor QueryClient {
         stale: Value?,
         previousUpdatedAt: Date?,
         previousFailureCount: Int,
+        isInvalidated: Bool,
         cacheOptions: QueryCacheOptions
     ) async -> QueryResult<Value> {
         do {
@@ -569,6 +589,7 @@ public actor QueryClient {
             return QueryResult(
                 status: .success(value),
                 isStale: isImmediatelyStale(cacheOptions: cacheOptions),
+                isInvalidated: false,
                 updatedAt: updatedAt
             )
         } catch {
@@ -578,7 +599,8 @@ public actor QueryClient {
                     stale: stale,
                     failureCount: previousFailureCount + 1
                 ),
-                isStale: stale != nil,
+                isStale: isInvalidated || stale != nil,
+                isInvalidated: isInvalidated,
                 updatedAt: previousUpdatedAt
             )
         }

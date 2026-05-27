@@ -18,6 +18,9 @@ public struct QueryCacheOptions: Sendable, Equatable {
     /// subscriber arrives before the timer fires, the timer is cancelled and
     /// the entry remains cached. A value of `0` removes the entry immediately
     /// after the last subscriber leaves.
+    ///
+    /// When observers provide per-observer cache options, the last subscriber's
+    /// `gcTime` is used when the entry becomes inactive.
     public var gcTime: TimeInterval
 
     /// Creates query cache lifecycle options.

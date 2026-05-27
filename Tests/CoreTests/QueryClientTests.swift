@@ -681,6 +681,43 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     #expect(await client.isQueryStale(invalidated))
 }
 
+@Test func isQueryStaleUsesProvidedCacheOptions() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0))
+    let key = QueryKey<Int>("stale", "custom-options")
+
+    _ = await client.fetchQuery(Query(key: key) { 42 })
+
+    #expect(await client.isQueryStale(key))
+    #expect(await client.isQueryStale(key, cacheOptions: QueryCacheOptions(staleTime: 60)) == false)
+}
+
+@Test func isQueryStaleTreatsInvalidatedEntryAsStaleWithProvidedCacheOptions() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let key = QueryKey<Int>("stale", "invalidated-custom-options")
+
+    await client.setQueryData(key, 42)
+    await client.invalidate(key: key)
+
+    #expect(await client.isQueryStale(key, cacheOptions: QueryCacheOptions(staleTime: 3600)))
+}
+
+@Test func failedFetchPreservesInvalidationSignalAndSuccessClearsIt() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let key = QueryKey<Int>("stale", "invalidation-preserved")
+
+    await client.setQueryData(key, 1)
+    await client.invalidate(key: key)
+    let failed = await client.fetchQuery(Query<Int>(key: key, options: QueryOptions(retry: .never)) {
+        throw QueryClientTestError.failed
+    })
+    let succeeded = await client.fetchQuery(Query(key: key) { 2 })
+
+    #expect(failed.isInvalidated)
+    #expect(failed.isStale)
+    #expect(succeeded.isInvalidated == false)
+    #expect(succeeded.data == 2)
+}
+
 @Test func successfulQueryPublishesStaleWhenStaleTimeElapses() async {
     let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0.02))
     let key = QueryKey<Int>("value")
@@ -1024,6 +1061,53 @@ private func eventually(_ condition: @escaping @Sendable () async -> Bool) async
     // Data must still be present because subscriber was active
     #expect(await client.getQueryData(key) == 42)
     await subscription.cancel()
+}
+
+@Test func gcTimerUsesLastSubscriberGCTimeWhenLongSubscriberLeavesLast() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0, gcTime: 0.05))
+    let key = QueryKey<Int>("gc-long-subscriber-last")
+    await client.setQueryData(key, 42)
+
+    let longSubscription = await client.subscribe(
+        to: key,
+        receiveCurrentValue: false,
+        gcTime: 0.2
+    ) { _ in }
+    let shortSubscription = await client.subscribe(
+        to: key,
+        receiveCurrentValue: false,
+        gcTime: 0.01
+    ) { _ in }
+
+    await shortSubscription.cancel()
+    await longSubscription.cancel()
+    try? await Task.sleep(nanoseconds: 80_000_000)
+    #expect(await client.getQueryData(key) == 42)
+
+    try? await Task.sleep(nanoseconds: 180_000_000)
+    #expect(await client.getQueryData(key) == nil)
+}
+
+@Test func gcTimerDoesNotReusePreviousLongSubscriberGCTime() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0, gcTime: 0.05))
+    let key = QueryKey<Int>("gc-long-subscriber-first")
+    await client.setQueryData(key, 42)
+
+    let longSubscription = await client.subscribe(
+        to: key,
+        receiveCurrentValue: false,
+        gcTime: 0.2
+    ) { _ in }
+    let shortSubscription = await client.subscribe(
+        to: key,
+        receiveCurrentValue: false,
+        gcTime: 0.01
+    ) { _ in }
+
+    await longSubscription.cancel()
+    await shortSubscription.cancel()
+    try? await Task.sleep(nanoseconds: 80_000_000)
+    #expect(await client.getQueryData(key) == nil)
 }
 
 @Test func entryRemovedImmediatelyWhenGCTimeIsZero() async {
