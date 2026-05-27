@@ -5,9 +5,13 @@ import SunKitSwiftUI
 struct InfiniteQueryExampleScreen: View {
     @Environment(\.queryClient) private var client
 
+    private static let cacheOptions = QueryCacheOptions(staleTime: 60)
+
     private let queryText = "swift language:swift"
 
-    @InfiniteQueryBinding() private var repositories: InfiniteQueryState<Int, GitHubRepositorySearchPage, InfiniteData<Int, GitHubRepositorySearchPage>>
+    @InfiniteQueryBinding(
+        cacheOptions: Self.cacheOptions
+    ) private var repositories: InfiniteQueryState<Int, GitHubRepositorySearchPage, InfiniteData<Int, GitHubRepositorySearchPage>>
 
     private var flattenedRepositories: [GitHubRepository] {
         repositories.pages.flatMap(\.items)
@@ -19,6 +23,22 @@ struct InfiniteQueryExampleScreen: View {
                 Text(queryText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+
+                HStack(spacing: 12) {
+                    Label("Fresh for \(Int(Self.cacheOptions.staleTime))s", systemImage: "clock")
+                    if repositories.result?.isStale == false {
+                        Label("Fresh", systemImage: "checkmark.circle")
+                    } else if repositories.result?.isStale == true {
+                        Label("Stale", systemImage: "exclamationmark.triangle")
+                    }
+                    if repositories.result?.isFetching == true {
+                        Label("Fetching", systemImage: "arrow.clockwise")
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
 
                 if repositories.result?.isPending == true || repositories.result == nil {
                     ProgressView("Loading repositories")

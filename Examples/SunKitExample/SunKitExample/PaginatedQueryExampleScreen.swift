@@ -5,12 +5,14 @@ import SunKitSwiftUI
 struct PaginatedQueryExampleScreen: View {
     @Environment(\.queryClient) private var client
 
+    private static let pageCacheOptions = QueryCacheOptions(staleTime: 120)
     @State private var searchText = "swift language:swift"
     @State private var submittedSearchText = "swift language:swift"
 
     @PaginatedQueryBinding(
         initialInput: "swift language:swift",
         initialPage: 1,
+        cacheOptions: Self.pageCacheOptions,
         nextPage: { $0 + 1 },
         previousPage: { $0 - 1 },
         canMoveToPreviousPage: { $0 > 1 }
@@ -34,15 +36,20 @@ struct PaginatedQueryExampleScreen: View {
 
                 HStack(spacing: 12) {
                     Label("Page \(repositories.page)", systemImage: "doc.text")
+                    Label("Fresh for \(Int(Self.pageCacheOptions.staleTime))s", systemImage: "clock")
                     if repositories.result?.isFetching == true {
                         Label("Fetching", systemImage: "arrow.clockwise")
                     }
-                    if repositories.result?.isStale == true {
+                    if repositories.result?.isStale == false {
+                        Label("Fresh", systemImage: "checkmark.circle")
+                    } else if repositories.result?.isStale == true {
                         Label("Stale", systemImage: "exclamationmark.triangle")
                     }
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
 
                 if let searchPage = repositories.result?.data {
                     Text("\(searchPage.totalCount.formatted()) repositories found")
