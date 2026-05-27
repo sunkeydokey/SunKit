@@ -94,13 +94,16 @@ integer, Boolean, and floating-point key literals are converted into Core key
 parts internally.
 Subscription delivers the current cached value only; the adapter then uses
 `QueryObserverOptions.enabled` and `refetchOnSubscribe` to decide whether to
-fetch. `.ifStale` checks the client's current cache state instead of relying on
-the last rendered `QueryState.result`.
+fetch. `.ifStale` checks the client's current cache state with the state's
+optional `QueryCacheOptions` instead of relying on the last rendered
+`QueryState.result`.
 
 Core may publish natural stale-time transitions, but `QueryState.result` does
-not update when `isStale` is the only changed field. Scene-active and
-network-reconnect `.ifStale` triggers still ask `QueryClient` for the current
-stale state before deciding whether to refetch.
+not update when `isStale` is the only changed field. When a state has
+per-observer cache options, it uses its own local stale timer to update
+`result.isStale`; explicit invalidation still marks every observer stale.
+Scene-active and network-reconnect `.ifStale` triggers still ask `QueryClient`
+for the current stale state before deciding whether to refetch.
 
 ## Selecting Data
 

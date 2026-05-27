@@ -55,6 +55,12 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         query?.key ?? QueryKey([])
     }
 
+    /// Per-observer cache lifecycle options, or `nil` to use the executing client's defaults.
+    ///
+    /// When non-`nil`, `staleTime` controls this observer's stale calculation
+    /// and `gcTime` is used if this observer is the last subscriber to leave.
+    public let cacheOptions: QueryCacheOptions?
+
     /// Observer options used when the state starts.
     ///
     /// The raw accumulated `InfiniteData` value is stored in `QueryClient`;
@@ -70,6 +76,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     @ObservationIgnored nonisolated(unsafe) private var nextPageTask: Task<Void, Never>?
     @ObservationIgnored private var lastSuccessfulData: SelectedValue?
     @ObservationIgnored private var lastSuccessfulRawData: InfiniteData<PageParam, Page>?
+    @ObservationIgnored nonisolated(unsafe) private var localStaleTimer: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var triggerController: RefetchTriggerController?
     @ObservationIgnored private var isObserving = false
     @ObservationIgnored private var currentEnabled: Bool
@@ -98,13 +105,17 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     ///
     /// - Parameters:
     ///   - query: The infinite query declaration to observe and fetch.
+    ///   - cacheOptions: Per-observer cache lifecycle options, or `nil` to use
+    ///     the executing client's defaults.
     ///   - options: Observer options that control initial fetch behavior.
     public convenience init(
         query: InfiniteQuery<PageParam, Page>,
+        cacheOptions: QueryCacheOptions? = nil,
         options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>
     ) {
         self.init(
             query: query,
+            cacheOptions: cacheOptions,
             options: options,
             sceneActiveNotificationName: Self.sceneActiveNotificationName
         )
@@ -112,29 +123,35 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
 
     internal init(
         query: InfiniteQuery<PageParam, Page>,
+        cacheOptions: QueryCacheOptions? = nil,
         options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>,
         sceneActiveNotificationName: Notification.Name
     ) {
         self.query = query
+        self.cacheOptions = cacheOptions
         self.options = options
         self.currentEnabled = options.enabled
         self.sceneActiveNotificationName = sceneActiveNotificationName
     }
 
     internal convenience init(
+        cacheOptions: QueryCacheOptions? = nil,
         options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>
     ) {
         self.init(
+            cacheOptions: cacheOptions,
             options: options,
             sceneActiveNotificationName: Self.sceneActiveNotificationName
         )
     }
 
     internal init(
+        cacheOptions: QueryCacheOptions? = nil,
         options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>,
         sceneActiveNotificationName: Notification.Name
     ) {
         self.query = nil
+        self.cacheOptions = cacheOptions
         self.options = options
         self.currentEnabled = options.enabled
         self.sceneActiveNotificationName = sceneActiveNotificationName
@@ -142,6 +159,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
 
     deinit {
         stopRefetchTriggers()
+        localStaleTimer?.cancel()
         subscriptionTask?.cancel()
         fetchTask?.cancel()
         nextPageTask?.cancel()
@@ -239,6 +257,8 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     public func stop() {
         generation += 1
         stopRefetchTriggers()
+        localStaleTimer?.cancel()
+        localStaleTimer = nil
         isObserving = false
         subscriptionTask?.cancel()
         subscriptionTask = nil
@@ -318,6 +338,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
 
             let subscription = await client.subscribe(
                 to: observedKey,
+                gcTime: cacheOptions?.gcTime,
                 deliverOn: .main
             ) { [weak state = self] result in
                 Task { @MainActor in
@@ -412,6 +433,8 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
             return
         }
 
+        let selectedIsStale = computeIsStale(for: selected)
+
         if options.placeholderData == .keepPreviousData,
            selected.isPending,
            let previous = lastSuccessfulData {
@@ -419,7 +442,8 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
                 let placeholderRawResult = QueryResult(
                     status: .pending(previous: previousRaw),
                     isFetching: incoming.isFetching,
-                    isStale: incoming.isStale,
+                    isStale: computeIsStale(for: incoming),
+                    isInvalidated: incoming.isInvalidated,
                     isPlaceholderData: true,
                     updatedAt: incoming.updatedAt
                 )
@@ -432,7 +456,8 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
             result = QueryResult(
                 status: .pending(previous: previous),
                 isFetching: selected.isFetching,
-                isStale: selected.isStale,
+                isStale: selectedIsStale,
+                isInvalidated: selected.isInvalidated,
                 isPlaceholderData: true,
                 updatedAt: selected.updatedAt
             )
@@ -445,8 +470,75 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
             if selected.isSuccess, let data = selected.data {
                 lastSuccessfulData = data
             }
-            result = selected
+            result = QueryResult(
+                status: selected.status,
+                isFetching: selected.isFetching,
+                isStale: selectedIsStale,
+                isInvalidated: selected.isInvalidated,
+                isPlaceholderData: selected.isPlaceholderData,
+                updatedAt: selected.updatedAt
+            )
+            if selected.isSuccess, let updatedAt = selected.updatedAt, cacheOptions != nil {
+                scheduleLocalStaleTimer(updatedAt: updatedAt)
+            }
         }
+    }
+
+    private func computeIsStale<Value>(for result: QueryResult<Value>) -> Bool {
+        if result.isInvalidated {
+            return true
+        }
+
+        guard let cacheOptions else {
+            return result.isStale
+        }
+
+        guard let updatedAt = result.updatedAt else {
+            return true
+        }
+
+        return Date().timeIntervalSince(updatedAt) >= cacheOptions.staleTime
+    }
+
+    private func scheduleLocalStaleTimer(updatedAt: Date) {
+        localStaleTimer?.cancel()
+        localStaleTimer = nil
+
+        guard let cacheOptions, cacheOptions.staleTime > 0 else {
+            return
+        }
+
+        let remaining = cacheOptions.staleTime - Date().timeIntervalSince(updatedAt)
+        guard remaining > 0 else {
+            markLocalResultStale()
+            return
+        }
+
+        let gen = generation
+        localStaleTimer = Task { [weak self] in
+            let nanoseconds = UInt64(remaining * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, self.generation == gen else { return }
+                self.markLocalResultStale()
+            }
+        }
+    }
+
+    private func markLocalResultStale() {
+        guard let current = result, !current.isStale else {
+            return
+        }
+
+        result = QueryResult(
+            status: current.status,
+            isFetching: current.isFetching,
+            isStale: true,
+            isInvalidated: current.isInvalidated,
+            isPlaceholderData: current.isPlaceholderData,
+            updatedAt: current.updatedAt
+        )
     }
 
     private func updateRawPageProjections(from rawResult: QueryResult<InfiniteData<PageParam, Page>>) {
@@ -469,7 +561,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         case .always:
             return true
         case .ifStale:
-            return await client.isQueryStale(key)
+            return await client.isQueryStale(key, cacheOptions: cacheOptions)
         }
     }
 }
@@ -480,9 +572,10 @@ public extension InfiniteQueryState where SelectedValue == InfiniteData<PagePara
     /// - Parameters:
     ///   - query: The infinite query declaration to observe and fetch.
     convenience init(
-        query: InfiniteQuery<PageParam, Page>
+        query: InfiniteQuery<PageParam, Page>,
+        cacheOptions: QueryCacheOptions? = nil
     ) {
-        self.init(query: query, options: .default)
+        self.init(query: query, cacheOptions: cacheOptions, options: .default)
     }
 }
 
@@ -490,6 +583,7 @@ private extension QueryResult {
     func differsOnlyByStaleFlag(from other: Self) -> Bool {
         isStale != other.isStale
             && isFetching == other.isFetching
+            && isInvalidated == other.isInvalidated
             && isPending == other.isPending
             && isSuccess == other.isSuccess
             && isError == other.isError

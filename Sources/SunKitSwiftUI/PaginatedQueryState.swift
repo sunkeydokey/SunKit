@@ -30,6 +30,9 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
     /// Query execution options, or `nil` to use the executing client's defaults.
     public let queryOptions: QueryOptions?
 
+    /// Per-observer cache lifecycle options, or `nil` to use the executing client's defaults.
+    public let cacheOptions: QueryCacheOptions?
+
     /// Observer options used when the state starts or changes key.
     ///
     /// The raw fetched page value is stored in `QueryClient`; `options.select`
@@ -52,6 +55,8 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
     ///   - initialPage: The page used initially and after input changes.
     ///   - queryOptions: Execution options for fetches, or `nil` to use the
     ///     executing client's defaults.
+    ///   - cacheOptions: Per-observer cache lifecycle options, or `nil` to use
+    ///     the executing client's defaults.
     ///   - options: Observer options that control fetch behavior.
     ///   - key: Builds the cache identity for the current input and page.
     ///   - nextPage: Returns the next page parameter.
@@ -63,6 +68,7 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
         input: Input,
         initialPage: Page,
         queryOptions: QueryOptions? = nil,
+        cacheOptions: QueryCacheOptions? = nil,
         options: QueryObserverOptions<RawValue, SelectedValue>,
         key: @escaping @Sendable (Input, Page) -> [AnyQueryKeyPart],
         nextPage: @escaping @Sendable (Page) -> Page,
@@ -74,6 +80,7 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
         self.page = initialPage
         self.initialPage = initialPage
         self.queryOptions = queryOptions
+        self.cacheOptions = cacheOptions
         self.options = options
         self.keyBuilder = key
         self.nextPageValue = nextPage
@@ -87,6 +94,7 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
         self.queryState = QueryState(
             key: key(initialInput, initialPageValue),
             queryOptions: queryOptions,
+            cacheOptions: cacheOptions,
             options: options
         ) {
             try await fetch(initialInput, initialPageValue)
@@ -97,6 +105,7 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
         placeholderInput: Input,
         initialPage: Page,
         queryOptions: QueryOptions? = nil,
+        cacheOptions: QueryCacheOptions? = nil,
         options: QueryObserverOptions<RawValue, SelectedValue>,
         nextPage: @escaping @Sendable (Page) -> Page,
         previousPage: @escaping @Sendable (Page) -> Page,
@@ -106,6 +115,7 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
         page = initialPage
         self.initialPage = initialPage
         self.queryOptions = queryOptions
+        self.cacheOptions = cacheOptions
         self.options = options
         keyBuilder = { _, _ in [] }
         fetch = { _, _ in throw UnconfiguredPaginatedQueryError() }
@@ -115,6 +125,7 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
         queryState = QueryState(
             key: [],
             queryOptions: queryOptions,
+            cacheOptions: cacheOptions,
             options: options
         ) {
             throw UnconfiguredPaginatedQueryError()
@@ -204,6 +215,7 @@ public extension PaginatedQueryState where RawValue == SelectedValue {
         input: Input,
         initialPage: Page,
         queryOptions: QueryOptions? = nil,
+        cacheOptions: QueryCacheOptions? = nil,
         key: @escaping @Sendable (Input, Page) -> [AnyQueryKeyPart],
         nextPage: @escaping @Sendable (Page) -> Page,
         previousPage: @escaping @Sendable (Page) -> Page,
@@ -214,6 +226,7 @@ public extension PaginatedQueryState where RawValue == SelectedValue {
             input: input,
             initialPage: initialPage,
             queryOptions: queryOptions,
+            cacheOptions: cacheOptions,
             options: .default,
             key: key,
             nextPage: nextPage,

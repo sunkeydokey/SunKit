@@ -21,18 +21,29 @@ public struct QueryBinding<RawValue: Sendable, SelectedValue: Sendable>: Dynamic
         QueryBindingHandle(state: state)
     }
 
-    /// Creates a query binding with static observer options.
+    /// Creates a query binding with static query, cache, and observer options.
     ///
     /// `enabled` can still change dynamically through
     /// ``View/query(_:key:enabled:fetch:)``. Other observer options are fixed
     /// for the lifetime of the stored query state.
     ///
-    /// - Parameter options: Observer options used by the underlying state.
+    /// - Parameters:
+    ///   - queryOptions: Execution options for fetches, or `nil` to use the
+    ///     executing client's defaults.
+    ///   - cacheOptions: Per-observer cache lifecycle options, or `nil` to use
+    ///     the executing client's defaults.
+    ///   - options: Observer options used by the underlying state.
     @MainActor
-    public init(options: QueryObserverOptions<RawValue, SelectedValue>) {
+    public init(
+        queryOptions: QueryOptions? = nil,
+        cacheOptions: QueryCacheOptions? = nil,
+        options: QueryObserverOptions<RawValue, SelectedValue>
+    ) {
         _state = State(
             initialValue: QueryState(
                 key: [],
+                queryOptions: queryOptions,
+                cacheOptions: cacheOptions,
                 options: options,
                 fetch: { throw UnconfiguredQueryBindingError() }
             )
@@ -43,8 +54,11 @@ public struct QueryBinding<RawValue: Sendable, SelectedValue: Sendable>: Dynamic
 public extension QueryBinding where RawValue == SelectedValue {
     /// Creates a query binding that exposes the raw cached value.
     @MainActor
-    init() {
-        self.init(options: .default)
+    init(
+        queryOptions: QueryOptions? = nil,
+        cacheOptions: QueryCacheOptions? = nil
+    ) {
+        self.init(queryOptions: queryOptions, cacheOptions: cacheOptions, options: .default)
     }
 }
 

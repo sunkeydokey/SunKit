@@ -23,6 +23,12 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     /// Query execution options, or `nil` to use the executing client's defaults.
     public let queryOptions: QueryOptions?
 
+    /// Per-observer cache lifecycle options, or `nil` to use the executing client's defaults.
+    ///
+    /// When non-`nil`, `staleTime` controls this observer's stale calculation
+    /// and `gcTime` is used if this observer is the last subscriber to leave.
+    public let cacheOptions: QueryCacheOptions?
+
     /// Observer options used when the state starts.
     public let options: QueryObserverOptions<RawValue, SelectedValue>
 
@@ -31,6 +37,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     @ObservationIgnored nonisolated(unsafe) private var fetchTask: Task<Void, Never>?
     @ObservationIgnored private var lastSuccessfulData: SelectedValue?
     @ObservationIgnored nonisolated(unsafe) private var intervalTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var localStaleTimer: Task<Void, Never>?
     @ObservationIgnored nonisolated(unsafe) private var triggerController: RefetchTriggerController?
     @ObservationIgnored private var isObserving = false
     @ObservationIgnored private var currentEnabled: Bool
@@ -65,17 +72,21 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     ///   - key: The cache identity parts to subscribe to and fetch.
     ///   - queryOptions: Execution options for fetches, or `nil` to use the
     ///     executing client's defaults.
+    ///   - cacheOptions: Per-observer cache lifecycle options, or `nil` to use
+    ///     the executing client's defaults.
     ///   - options: Observer options that control initial fetch behavior.
     ///   - fetch: The async operation that loads the query value.
     public convenience init(
         key: [AnyQueryKeyPart],
         queryOptions: QueryOptions? = nil,
+        cacheOptions: QueryCacheOptions? = nil,
         options: QueryObserverOptions<RawValue, SelectedValue>,
         fetch: @escaping @Sendable () async throws -> RawValue
     ) {
         self.init(
             key: key,
             queryOptions: queryOptions,
+            cacheOptions: cacheOptions,
             options: options,
             sceneActiveNotificationName: Self.sceneActiveNotificationName,
             fetch: fetch
@@ -85,12 +96,14 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     internal init(
         key: [AnyQueryKeyPart],
         queryOptions: QueryOptions? = nil,
+        cacheOptions: QueryCacheOptions? = nil,
         options: QueryObserverOptions<RawValue, SelectedValue>,
         sceneActiveNotificationName: Notification.Name,
         fetch: @escaping @Sendable () async throws -> RawValue
     ) {
         self.key = QueryKey(key)
         self.queryOptions = queryOptions
+        self.cacheOptions = cacheOptions
         self.options = options
         self.fetch = fetch
         self.currentEnabled = options.enabled
@@ -99,6 +112,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
 
     deinit {
         stopIntervalTimer()
+        localStaleTimer?.cancel()
         stopRefetchTriggers()
         subscriptionTask?.cancel()
         fetchTask?.cancel()
@@ -204,6 +218,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
 
             let subscription = await client.subscribe(
                 to: observedKey,
+                gcTime: cacheOptions?.gcTime,
                 deliverOn: .main
             ) { [weak state = self] result in
                 Task { @MainActor in
@@ -252,6 +267,8 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     public func stop() {
         generation += 1
         stopIntervalTimer()
+        localStaleTimer?.cancel()
+        localStaleTimer = nil
         stopRefetchTriggers()
         isObserving = false
         subscriptionTask?.cancel()
@@ -342,13 +359,16 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
             return
         }
 
+        let selectedIsStale = computeIsStale(for: selected)
+
         if options.placeholderData == .keepPreviousData,
            selected.isPending,
            let previous = lastSuccessfulData {
             result = QueryResult(
                 status: .pending(previous: previous),
                 isFetching: selected.isFetching,
-                isStale: selected.isStale,
+                isStale: selectedIsStale,
+                isInvalidated: selected.isInvalidated,
                 isPlaceholderData: true,
                 updatedAt: selected.updatedAt
             )
@@ -356,8 +376,75 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
             if selected.isSuccess, let data = selected.data {
                 lastSuccessfulData = data
             }
-            result = selected
+            result = QueryResult(
+                status: selected.status,
+                isFetching: selected.isFetching,
+                isStale: selectedIsStale,
+                isInvalidated: selected.isInvalidated,
+                isPlaceholderData: selected.isPlaceholderData,
+                updatedAt: selected.updatedAt
+            )
+            if selected.isSuccess, let updatedAt = selected.updatedAt, cacheOptions != nil {
+                scheduleLocalStaleTimer(updatedAt: updatedAt)
+            }
         }
+    }
+
+    private func computeIsStale(for result: QueryResult<SelectedValue>) -> Bool {
+        if result.isInvalidated {
+            return true
+        }
+
+        guard let cacheOptions else {
+            return result.isStale
+        }
+
+        guard let updatedAt = result.updatedAt else {
+            return true
+        }
+
+        return Date().timeIntervalSince(updatedAt) >= cacheOptions.staleTime
+    }
+
+    private func scheduleLocalStaleTimer(updatedAt: Date) {
+        localStaleTimer?.cancel()
+        localStaleTimer = nil
+
+        guard let cacheOptions, cacheOptions.staleTime > 0 else {
+            return
+        }
+
+        let remaining = cacheOptions.staleTime - Date().timeIntervalSince(updatedAt)
+        guard remaining > 0 else {
+            markLocalResultStale()
+            return
+        }
+
+        let gen = generation
+        localStaleTimer = Task { [weak self] in
+            let nanoseconds = UInt64(remaining * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, self.generation == gen else { return }
+                self.markLocalResultStale()
+            }
+        }
+    }
+
+    private func markLocalResultStale() {
+        guard let current = result, !current.isStale else {
+            return
+        }
+
+        result = QueryResult(
+            status: current.status,
+            isFetching: current.isFetching,
+            isStale: true,
+            isInvalidated: current.isInvalidated,
+            isPlaceholderData: current.isPlaceholderData,
+            updatedAt: current.updatedAt
+        )
     }
 
     private func makeQuery(for observedKey: QueryKey<RawValue>) -> Query<RawValue> {
@@ -379,7 +466,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
         case .always:
             return true
         case .ifStale:
-            return await client.isQueryStale(key)
+            return await client.isQueryStale(key, cacheOptions: cacheOptions)
         }
     }
 }
@@ -395,9 +482,10 @@ public extension QueryState where RawValue == SelectedValue {
     convenience init(
         key: [AnyQueryKeyPart],
         queryOptions: QueryOptions? = nil,
+        cacheOptions: QueryCacheOptions? = nil,
         fetch: @escaping @Sendable () async throws -> RawValue
     ) {
-        self.init(key: key, queryOptions: queryOptions, options: .default, fetch: fetch)
+        self.init(key: key, queryOptions: queryOptions, cacheOptions: cacheOptions, options: .default, fetch: fetch)
     }
 }
 
@@ -405,6 +493,7 @@ private extension QueryResult {
     func differsOnlyByStaleFlag(from other: Self) -> Bool {
         isStale != other.isStale
             && isFetching == other.isFetching
+            && isInvalidated == other.isInvalidated
             && isPending == other.isPending
             && isSuccess == other.isSuccess
             && isError == other.isError

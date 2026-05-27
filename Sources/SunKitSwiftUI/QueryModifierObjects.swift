@@ -17,18 +17,21 @@ public struct InfiniteQueryBinding<PageParam: Sendable, Page: Sendable, Selected
         InfiniteQueryBindingHandle(state: state)
     }
 
-    /// Creates an infinite query binding with static observer options.
+    /// Creates an infinite query binding with static cache and observer options.
     @MainActor
-    public init(options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>) {
-        _state = State(initialValue: InfiniteQueryState(options: options))
+    public init(
+        cacheOptions: QueryCacheOptions? = nil,
+        options: QueryObserverOptions<InfiniteData<PageParam, Page>, SelectedValue>
+    ) {
+        _state = State(initialValue: InfiniteQueryState(cacheOptions: cacheOptions, options: options))
     }
 }
 
 public extension InfiniteQueryBinding where SelectedValue == InfiniteData<PageParam, Page> {
     /// Creates an infinite query binding that exposes accumulated raw data.
     @MainActor
-    init() {
-        self.init(options: .default)
+    init(cacheOptions: QueryCacheOptions? = nil) {
+        self.init(cacheOptions: cacheOptions, options: .default)
     }
 }
 
@@ -121,6 +124,7 @@ public struct PaginatedQueryBinding<Input: Hashable & Sendable, Page: Sendable, 
         initialInput: Input,
         initialPage: Page,
         queryOptions: QueryOptions? = nil,
+        cacheOptions: QueryCacheOptions? = nil,
         options: QueryObserverOptions<RawValue, SelectedValue>,
         nextPage: @escaping @Sendable (Page) -> Page,
         previousPage: @escaping @Sendable (Page) -> Page,
@@ -131,6 +135,7 @@ public struct PaginatedQueryBinding<Input: Hashable & Sendable, Page: Sendable, 
                 placeholderInput: initialInput,
                 initialPage: initialPage,
                 queryOptions: queryOptions,
+                cacheOptions: cacheOptions,
                 options: options,
                 nextPage: nextPage,
                 previousPage: previousPage,
@@ -147,6 +152,7 @@ public extension PaginatedQueryBinding where RawValue == SelectedValue {
         initialInput: Input,
         initialPage: Page,
         queryOptions: QueryOptions? = nil,
+        cacheOptions: QueryCacheOptions? = nil,
         nextPage: @escaping @Sendable (Page) -> Page,
         previousPage: @escaping @Sendable (Page) -> Page,
         canMoveToPreviousPage: @escaping @Sendable (Page) -> Bool
@@ -155,6 +161,7 @@ public extension PaginatedQueryBinding where RawValue == SelectedValue {
             initialInput: initialInput,
             initialPage: initialPage,
             queryOptions: queryOptions,
+            cacheOptions: cacheOptions,
             options: .default,
             nextPage: nextPage,
             previousPage: previousPage,

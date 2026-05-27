@@ -600,6 +600,151 @@ func queryStateIgnoresStaleOnlyPublication() async {
 
 @Test
 @MainActor
+func queryStatesWithSameKeyUseIndependentStaleTimes() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let key = QueryKey<Int>("swiftui", "observer-local", "same-key")
+    await client.setQueryData(key, 1)
+    let staleObserver = QueryState<Int, Int>(
+        key: ["swiftui", "observer-local", "same-key"],
+        cacheOptions: QueryCacheOptions(staleTime: 0),
+        options: QueryObserverOptions(refetchOnSubscribe: .never)
+    ) {
+        2
+    }
+    let freshObserver = QueryState<Int, Int>(
+        key: ["swiftui", "observer-local", "same-key"],
+        cacheOptions: QueryCacheOptions(staleTime: 60),
+        options: QueryObserverOptions(refetchOnSubscribe: .never)
+    ) {
+        3
+    }
+
+    staleObserver.start(using: client)
+    freshObserver.start(using: client)
+
+    #expect(await eventuallyOnMainActor { staleObserver.result?.data == 1 && freshObserver.result?.data == 1 })
+    #expect(staleObserver.result?.isStale == true)
+    #expect(freshObserver.result?.isStale == false)
+    staleObserver.stop()
+    freshObserver.stop()
+}
+
+@Test
+@MainActor
+func queryStateObserverLocalStaleTimeOverridesImmediateClientDefault() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0))
+    let state = QueryState<Int, Int>(
+        key: ["swiftui", "observer-local", "fresh-default-stale"],
+        cacheOptions: QueryCacheOptions(staleTime: 60),
+        fetch: { 99 }
+    )
+
+    state.start(using: client)
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 99 })
+    #expect(state.result?.isStale == false)
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateObserverLocalStaleTimerMarksResultStale() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let state = QueryState<Int, Int>(
+        key: ["swiftui", "observer-local", "timer"],
+        cacheOptions: QueryCacheOptions(staleTime: 0.05),
+        fetch: { 7 }
+    )
+
+    state.start(using: client)
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 7 && state.result?.isStale == false })
+    #expect(await eventuallyOnMainActor { state.result?.isStale == true })
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateIfStaleUsesObserverLocalStaleTime() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0))
+    let key = QueryKey<Int>("swiftui", "observer-local", "if-stale")
+    let counter = SwiftUIFetchCounter()
+    _ = await client.fetchQuery(Query(key: key) { 1 })
+    let state = QueryState<Int, Int>(
+        key: ["swiftui", "observer-local", "if-stale"],
+        cacheOptions: QueryCacheOptions(staleTime: 60),
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .ifStale,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) {
+        await counter.next()
+    }
+
+    state.start(using: client)
+    try? await Task.sleep(nanoseconds: 80_000_000)
+
+    #expect(state.result?.data == 1)
+    #expect(state.result?.isStale == false)
+    #expect(await counter.value() == 0)
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateInvalidationIgnoresObserverLocalStaleTime() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0))
+    let key = QueryKey<Int>("swiftui", "observer-local", "invalidation")
+    await client.setQueryData(key, 5)
+    let state = QueryState<Int, Int>(
+        key: ["swiftui", "observer-local", "invalidation"],
+        cacheOptions: QueryCacheOptions(staleTime: 60),
+        options: QueryObserverOptions(
+            enabled: false,
+            refetchOnSubscribe: .never,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    ) { 6 }
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == 5 && state.result?.isStale == false })
+
+    await client.invalidate(key: key)
+
+    #expect(await eventuallyOnMainActor { state.result?.isStale == true })
+    state.stop()
+}
+
+@Test
+@MainActor
+func queryStateKeyChangeCancelsPreviousLocalStaleTimer() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 60))
+    let state = QueryState<Int, Int>(
+        key: ["swiftui", "observer-local", "timer-old"],
+        cacheOptions: QueryCacheOptions(staleTime: 0.2),
+        fetch: { 1 }
+    )
+
+    state.start(using: client)
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 && state.result?.isStale == false })
+    try? await Task.sleep(nanoseconds: 100_000_000)
+    state.update(
+        key: ["swiftui", "observer-local", "timer-new"],
+        using: client,
+        fetch: { 2 }
+    )
+    #expect(await eventuallyOnMainActor { state.result?.data == 2 && state.result?.isStale == false })
+    try? await Task.sleep(nanoseconds: 120_000_000)
+
+    #expect(state.result?.data == 2)
+    #expect(state.result?.isStale == false)
+    state.stop()
+}
+
+@Test
+@MainActor
 func queryStateKeyUpdateSwitchesSubscriptionToNewKey() async {
     let client = QueryClient()
     let oldKey = QueryKey<String>("swiftui", "dynamic", "old")
@@ -1191,7 +1336,45 @@ func infiniteQueryStateEnabledFalseToTrueViaUpdateStartsFetch() async {
     state.stop()
 }
 
+@Test
+@MainActor
+func infiniteQueryStateObserverLocalStaleTimeOverridesImmediateClientDefault() async {
+    let client = QueryClient(defaultCacheOptions: QueryCacheOptions(staleTime: 0))
+    let query = InfiniteQuery<Int, Int>(
+        key: ["swiftui", "infinite-observer-local"],
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { page in
+        page
+    }
+    let state = InfiniteQueryState(
+        query: query,
+        cacheOptions: QueryCacheOptions(staleTime: 60)
+    )
+
+    state.start(using: client)
+
+    #expect(await eventuallyOnMainActor { state.result?.data != nil })
+    #expect(state.result?.isStale == false)
+    state.stop()
+}
+
 // MARK: - QueryBinding tests
+
+@Test
+@MainActor
+func queryBindingPassesQueryAndCacheOptionsToInternalState() {
+    let queryOptions = QueryOptions(retry: .never)
+    let cacheOptions = QueryCacheOptions(staleTime: 60, gcTime: 120)
+    let queryBinding = QueryBinding<Int, Int>(
+        queryOptions: queryOptions,
+        cacheOptions: cacheOptions,
+        options: .default
+    )
+
+    #expect(queryBinding.wrappedValue.queryOptions == queryOptions)
+    #expect(queryBinding.wrappedValue.cacheOptions == cacheOptions)
+}
 
 @Test
 @MainActor
@@ -1311,6 +1494,18 @@ func queryStateKeyChangeUsesCurrentEnabledState() async {
 
 @Test
 @MainActor
+func infiniteQueryBindingPassesCacheOptionsToInternalState() {
+    let cacheOptions = QueryCacheOptions(staleTime: 60, gcTime: 120)
+    let queryBinding = InfiniteQueryBinding<Int, Int, InfiniteData<Int, Int>>(
+        cacheOptions: cacheOptions,
+        options: .default
+    )
+
+    #expect(queryBinding.wrappedValue.cacheOptions == cacheOptions)
+}
+
+@Test
+@MainActor
 func infiniteQueryBindingHandleEnabledTransitionStartsFetch() async {
     let client = QueryClient()
     let counter = SwiftUIFetchCounter()
@@ -1377,6 +1572,42 @@ func infiniteQueryBindingHandleUpdatesKeyAndFetchNextPageUsesLatestQuery() async
     state.fetchNextPage(using: client)
     #expect(await eventuallyOnMainActor { state.pages == ["second-1", "second-2"] })
     state.stop()
+}
+
+@Test
+@MainActor
+func paginatedQueryStatePassesCacheOptionsToInternalQueryState() {
+    let cacheOptions = QueryCacheOptions(staleTime: 120, gcTime: 240)
+    let state = PaginatedQueryState<String, Int, Int, Int>(
+        input: "test",
+        initialPage: 1,
+        cacheOptions: cacheOptions,
+        options: .default,
+        key: { input, page in [AnyQueryKeyPart(input), AnyQueryKeyPart(page)] },
+        nextPage: { $0 + 1 },
+        previousPage: { $0 - 1 },
+        canMoveToPreviousPage: { $0 > 1 },
+        fetch: { _, _ in 0 }
+    )
+
+    #expect(state.cacheOptions == cacheOptions)
+}
+
+@Test
+@MainActor
+func paginatedQueryBindingPassesCacheOptionsToInternalState() {
+    let cacheOptions = QueryCacheOptions(staleTime: 120, gcTime: 240)
+    let queryBinding = PaginatedQueryBinding<String, Int, Int, Int>(
+        initialInput: "test",
+        initialPage: 1,
+        cacheOptions: cacheOptions,
+        options: .default,
+        nextPage: { $0 + 1 },
+        previousPage: { $0 - 1 },
+        canMoveToPreviousPage: { $0 > 1 }
+    )
+
+    #expect(queryBinding.wrappedValue.cacheOptions == cacheOptions)
 }
 
 @Test
