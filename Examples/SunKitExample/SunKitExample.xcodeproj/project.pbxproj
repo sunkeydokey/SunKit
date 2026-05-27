@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -24,10 +24,19 @@
 		D91F27C8149506312A641529 /* ExampleRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = D04741D2A1BBFD469E2E70FF /* ExampleRows.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A3E4A3D62FC60CC70051BB28 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 92882365D402AB7B3412DC9A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D5382223E45ADEF694DDF807;
+			remoteInfo = SunKitExample;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		0C942F14D8A52D96FB992DFD /* QueryExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryExampleScreen.swift; sourceTree = "<group>"; };
 		1E077D9809E1400FA7F3339F /* SelectExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelectExampleScreen.swift; sourceTree = "<group>"; };
-		B1C2D3E4F5061728394A5B6C /* EnabledExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnabledExampleScreen.swift; sourceTree = "<group>"; };
 		2BB7725F62E64F57CAB57C20 /* GitHubAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubAPI.swift; sourceTree = "<group>"; };
 		45A2AE4E00FA40DBA6D473A2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		45C4C85E470BDD0C09FBD4F8 /* SunKitExampleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SunKitExampleApp.swift; sourceTree = "<group>"; };
@@ -36,11 +45,18 @@
 		6A7F06FC3304693826FE09AA /* SunKitExample.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SunKitExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		72B35C15515142368F39D214 /* QueryInvalidationExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueryInvalidationExampleScreen.swift; sourceTree = "<group>"; };
 		93F0B71A5C6D4E82B1A907D3 /* ParallelQueriesBindingModifierExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParallelQueriesBindingModifierExampleScreen.swift; sourceTree = "<group>"; };
+		A3E4A3D02FC60CC70051BB28 /* SunKitExampleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SunKitExampleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3E4A3DB2FC60E790051BB28 /* SunKitExample.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = SunKitExample.xctestplan; sourceTree = "<group>"; };
 		AD0F6CA28AC39DB9669F0815 /* PaginatedQueryExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaginatedQueryExampleScreen.swift; sourceTree = "<group>"; };
+		B1C2D3E4F5061728394A5B6C /* EnabledExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnabledExampleScreen.swift; sourceTree = "<group>"; };
 		CE4642AF569E7798C9F359C0 /* MutationExampleScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationExampleScreen.swift; sourceTree = "<group>"; };
 		D04741D2A1BBFD469E2E70FF /* ExampleRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExampleRows.swift; sourceTree = "<group>"; };
 		E157ADEC7CE1CDEB86330801 /* SunKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SunKit; path = ../..; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		A3E4A3D12FC60CC70051BB28 /* SunKitExampleUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = SunKitExampleUITests; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		990E007493BF433E466B0B53 /* Frameworks */ = {
@@ -52,14 +68,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A3E4A3CD2FC60CC70051BB28 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		1391C2E8D9D533497ED0FA0F = {
 			isa = PBXGroup;
 			children = (
+				A3E4A3DB2FC60E790051BB28 /* SunKitExample.xctestplan */,
 				9D1DB36FDEDA48629A379FB6 /* Packages */,
 				C3008AA7EF1F2BD45DECC455 /* SunKitExample */,
+				A3E4A3D12FC60CC70051BB28 /* SunKitExampleUITests */,
 				C4697A93BC0D6109E842FAC5 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -96,6 +121,7 @@
 			isa = PBXGroup;
 			children = (
 				6A7F06FC3304693826FE09AA /* SunKitExample.app */,
+				A3E4A3D02FC60CC70051BB28 /* SunKitExampleUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -103,6 +129,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A3E4A3CF2FC60CC70051BB28 /* SunKitExampleUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A3E4A3DA2FC60CC70051BB28 /* Build configuration list for PBXNativeTarget "SunKitExampleUITests" */;
+			buildPhases = (
+				A3E4A3CC2FC60CC70051BB28 /* Sources */,
+				A3E4A3CD2FC60CC70051BB28 /* Frameworks */,
+				A3E4A3CE2FC60CC70051BB28 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A3E4A3D72FC60CC70051BB28 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A3E4A3D12FC60CC70051BB28 /* SunKitExampleUITests */,
+			);
+			name = SunKitExampleUITests;
+			packageProductDependencies = (
+			);
+			productName = SunKitExampleUITests;
+			productReference = A3E4A3D02FC60CC70051BB28 /* SunKitExampleUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		D5382223E45ADEF694DDF807 /* SunKitExample */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 9068C5C21C78CB135990FA60 /* Build configuration list for PBXNativeTarget "SunKitExample" */;
@@ -130,8 +179,13 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
+				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					A3E4A3CF2FC60CC70051BB28 = {
+						CreatedOnToolsVersion = 26.4;
+						TestTargetID = D5382223E45ADEF694DDF807;
+					};
 					D5382223E45ADEF694DDF807 = {
 						DevelopmentTeam = "";
 						ProvisioningStyle = Manual;
@@ -151,14 +205,24 @@
 			packageReferences = (
 				1576202E9CE8B79CE470EA95 /* XCLocalSwiftPackageReference "../.." */,
 			);
-			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				D5382223E45ADEF694DDF807 /* SunKitExample */,
+				A3E4A3CF2FC60CC70051BB28 /* SunKitExampleUITests */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A3E4A3CE2FC60CC70051BB28 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		9287DA9954221140DA36256D /* Sources */ = {
@@ -181,7 +245,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A3E4A3CC2FC60CC70051BB28 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A3E4A3D72FC60CC70051BB28 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D5382223E45ADEF694DDF807 /* SunKitExample */;
+			targetProxy = A3E4A3D62FC60CC70051BB28 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		0CACACCA878A6298A826906D /* Release */ = {
@@ -326,6 +405,64 @@
 			};
 			name = Debug;
 		};
+		A3E4A3D82FC60CC70051BB28 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L289H6Z6JS;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunkit.example.SunKitExampleUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = SunKitExample;
+			};
+			name = Debug;
+		};
+		A3E4A3D92FC60CC70051BB28 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L289H6Z6JS;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunkit.example.SunKitExampleUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = SunKitExample;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		DA76DC2F33434B7CCED9D5F4 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -368,6 +505,15 @@
 			buildConfigurations = (
 				2BB1E1262F0E97C9AB91C52D /* Debug */,
 				DA76DC2F33434B7CCED9D5F4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A3E4A3DA2FC60CC70051BB28 /* Build configuration list for PBXNativeTarget "SunKitExampleUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A3E4A3D82FC60CC70051BB28 /* Debug */,
+				A3E4A3D92FC60CC70051BB28 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

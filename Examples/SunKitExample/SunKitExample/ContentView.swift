@@ -58,6 +58,7 @@ struct ContentView: View {
                     Label("Dynamic Query", systemImage: "arrow.triangle.2.circlepath")
                 }
             }
+            .accessibilityIdentifier("screen.root")
             .navigationTitle("SunKit")
         }
     }

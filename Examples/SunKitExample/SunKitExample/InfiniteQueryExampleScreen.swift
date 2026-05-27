@@ -53,9 +53,11 @@ struct InfiniteQueryExampleScreen: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(!repositories.hasNextPage || repositories.isFetchingNextPage)
                 .frame(maxWidth: .infinity, alignment: .center)
+                .accessibilityIdentifier("infinite.loadMoreButton")
             }
             .padding()
         }
+        .accessibilityIdentifier("screen.infinite")
         .navigationTitle("Infinite Query")
         .infiniteQuery(
             $repositories,

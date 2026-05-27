@@ -11,6 +11,7 @@ struct DynamicQueryBindingExampleScreen: View {
                 TextField("Username", text: $username)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .accessibilityIdentifier("dynamic.usernameField")
             }
 
             Section("Broken direct capture") {
@@ -21,6 +22,7 @@ struct DynamicQueryBindingExampleScreen: View {
                 WorkingQueryBindingCapture(username: username)
             }
         }
+        .accessibilityIdentifier("screen.dynamic")
         .navigationTitle("Dynamic Query")
     }
 }
@@ -110,4 +112,3 @@ private enum DynamicQueryDemoAPI {
         ]
     }
 }
-

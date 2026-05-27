@@ -44,6 +44,7 @@ struct EnabledExampleScreen: View {
                     .textFieldStyle(.roundedBorder)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .accessibilityIdentifier("enabled.usernameField")
 
                 if !isEnabled {
                     Label("username을 입력하면 자동으로 fetch가 시작됩니다.", systemImage: "info.circle")
@@ -75,6 +76,7 @@ struct EnabledExampleScreen: View {
             }
             .padding()
         }
+        .accessibilityIdentifier("screen.enabled")
         .navigationTitle("Enabled")
         .query(
             $followers,

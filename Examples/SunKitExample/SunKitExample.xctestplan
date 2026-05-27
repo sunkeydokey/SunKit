@@ -1,0 +1,29 @@
+{
+  "configurations" : [
+    {
+      "id" : "A1BC0E23-66A4-4162-9EC3-7A52D3AA862A",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:SunKitExample.xcodeproj",
+      "identifier" : "D5382223E45ADEF694DDF807",
+      "name" : "SunKitExample"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:SunKitExample.xcodeproj",
+        "identifier" : "A3E4A3CF2FC60CC70051BB28",
+        "name" : "SunKitExampleUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

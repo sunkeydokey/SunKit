@@ -21,11 +21,13 @@ struct QueryExampleScreen: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .onSubmit(loadFollowers)
+                        .accessibilityIdentifier("query.usernameField")
 
                     Button(action: loadFollowers) {
                         Label("Load", systemImage: "person.2")
                     }
                     .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("query.loadButton")
                 }
 
                 if followers.result?.isFetching == true {
@@ -51,6 +53,7 @@ struct QueryExampleScreen: View {
             }
             .padding()
         }
+        .accessibilityIdentifier("screen.query")
         .navigationTitle("Query")
         .onAppear {
             followers.start(using: client)

@@ -30,12 +30,14 @@ struct ParallelQueriesBindingModifierExampleScreen: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .onSubmit(loadBatch)
+                        .accessibilityIdentifier("parallel.usernamesField")
 
                     Button(action: loadBatch) {
                         Label("Load Batch", systemImage: "rectangle.stack")
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(parsedUsernames.isEmpty)
+                    .accessibilityIdentifier("parallel.loadBatchButton")
                 }
 
                 if followersBatch.isFetching {
@@ -55,6 +57,7 @@ struct ParallelQueriesBindingModifierExampleScreen: View {
             }
             .padding()
         }
+        .accessibilityIdentifier("screen.parallel")
         .navigationTitle("Parallel Queries")
         .parallelQueries(
             $followersBatch,
