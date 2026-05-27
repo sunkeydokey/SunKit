@@ -266,6 +266,11 @@ is evaluated locally for this `QueryState`, while `gcTime` is used if this
 observer is the last subscriber to leave the cache entry. If `cacheOptions` is
 omitted, the client defaults are used.
 
+`QueryState` exposes convenience properties for common view branches:
+`data`, `error`, `isPending`, `isFetching`, `isSuccess`, and `isError`.
+Use `result` only when you need the full `QueryResult`, such as
+`result?.isStale` or `result?.isPlaceholderData`.
+
 Direct `QueryState` lifecycle is still available when you need manual control:
 
 ```swift
@@ -275,8 +280,19 @@ Direct `QueryState` lifecycle is still available when you need manual control:
 }
 
 var body: some View {
-    Button("Refresh") {
-        projects.refetch(using: client)
+    List(projects.data ?? []) { project in
+        ProjectRow(project: project)
+    }
+    .overlay {
+        if projects.isPending {
+            ProgressView("Loading projects")
+        }
+    }
+    .toolbar {
+        Button("Refresh") {
+            projects.refetch(using: client)
+        }
+        .disabled(projects.isFetching)
     }
     .onAppear { projects.start(using: client) }
     .onDisappear { projects.stop() }

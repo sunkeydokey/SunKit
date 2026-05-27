@@ -263,6 +263,11 @@ client로 state를 start, update, stop합니다. 여기서도 key가 identity co
 entry를 떠나는 마지막 subscriber일 때 inactive data 제거 예약에 사용됩니다.
 `cacheOptions`를 생략하면 client 기본값을 사용합니다.
 
+`QueryState`는 view 분기에 자주 쓰는 convenience property를 제공합니다:
+`data`, `error`, `isPending`, `isFetching`, `isSuccess`, `isError`.
+`result`는 `result?.isStale` 또는 `result?.isPlaceholderData`처럼 전체
+`QueryResult`가 필요할 때만 사용하세요.
+
 직접 제어가 필요하면 `QueryState` lifecycle을 직접 사용할 수도 있습니다.
 
 ```swift
@@ -272,8 +277,19 @@ entry를 떠나는 마지막 subscriber일 때 inactive data 제거 예약에 �
 }
 
 var body: some View {
-    Button("Refresh") {
-        projects.refetch(using: client)
+    List(projects.data ?? []) { project in
+        ProjectRow(project: project)
+    }
+    .overlay {
+        if projects.isPending {
+            ProgressView("Loading projects")
+        }
+    }
+    .toolbar {
+        Button("Refresh") {
+            projects.refetch(using: client)
+        }
+        .disabled(projects.isFetching)
     }
     .onAppear { projects.start(using: client) }
     .onDisappear { projects.stop() }
