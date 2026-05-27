@@ -75,10 +75,7 @@ AGENTS.md
 .claude/*.local.*
 .codex/
 .agent/
-docs/
-!DOCS/
-docs/*
-!DOCS/README.ko.md
+docs/superpowers/*
 
 # xcode-build-server files
 buildServer.json
