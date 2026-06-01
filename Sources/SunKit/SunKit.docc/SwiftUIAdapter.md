@@ -58,7 +58,8 @@ The `.query(...)` modifier reads `\.queryClient`, updates the stored state on
 appearance, updates it again when the key or `enabled` flag changes, and stops
 the state on disappearance. `QueryBinding` options are static for the lifetime of
 the stored state; pass dynamic fetch gating through the modifier's `enabled`
-parameter.
+parameter. After the modifier has supplied a client, call `refetch()` for manual
+refreshes without passing the client again.
 
 ## Direct QueryState
 
@@ -185,8 +186,12 @@ while keeping the subscription active.
 
 ## Paginated Queries
 
-Use `PaginatedQueryBinding` with `.paginatedQuery(...)` when the input, key, or
-fetcher depends on state owned by the same view:
+SunKit supports two paginated-query styles. Choose based on who should own the
+current page value and reset behavior.
+
+Use `PaginatedQueryBinding` with `.paginatedQuery(...)` when page navigation is
+part of the query state and the input, key, or fetcher depends on state owned by
+the same view:
 
 ```swift
 @State private var searchText = ""
@@ -221,7 +226,51 @@ var body: some View {
 The modifier updates the stored state on appearance and when the input, current
 page key, or `enabled` flag changes. Input changes reset to the initial page.
 Page navigation methods keep using the latest key and fetch closures supplied by
-the modifier.
+the modifier. After the modifier has supplied a client, binding-backed states
+can call `setInput(_:)`, `setPage(_:)`, `nextPage()`, `previousPage()`, and
+`refetch()` without passing the client again.
+
+With this style, `PaginatedQueryState` owns `input`, `page`, next/previous-page
+closures, and the current subscription. The page survives SwiftUI `body`
+re-renders while the same view instance remains alive. Returning to a previous
+page observes that page's key again and can reuse fresh cached data from
+`QueryClient`.
+
+Use regular `@State` plus `QueryBinding` when the view should own the page
+explicitly:
+
+```swift
+@State private var searchText = ""
+@State private var submittedSearchText = ""
+@State private var page = 1
+
+@QueryBinding
+private var projects: QueryState<ProjectPage, ProjectPage>
+
+var body: some View {
+    List(projects.data?.items ?? []) { project in
+        ProjectRow(project: project)
+    }
+    .query(
+        $projects,
+        key: [
+            "projects",
+            AnyQueryKeyPart(submittedSearchText),
+            AnyQueryKeyPart(page),
+        ],
+        enabled: !submittedSearchText.isEmpty
+    ) {
+        try await api.searchProjects(submittedSearchText, page: page)
+    }
+}
+```
+
+With this style, SwiftUI owns page lifecycle. Buttons or other UI mutate the
+`@State` page directly, and the query modifier observes whichever key that
+state currently describes. If a pushed screen is popped and later recreated,
+`@State private var page = 1` starts from page 1 again. The query layer does not
+own next/previous semantics in this form; it only caches and fetches each
+`(input, page)` key.
 
 You can also use `PaginatedQueryState` directly when manually managing the
 lifecycle:
@@ -241,13 +290,12 @@ lifecycle:
 }
 ```
 
-Call `setInput(_:using:)` when a search or filter changes; the page resets to
-the initial page. Call `setPage(_:using:)`, `nextPage(using:)`, or
-`previousPage(using:)` for page navigation. Returning to a previous page uses
-the `QueryClient` cache for that key. Use `canMoveToPreviousPage` to enforce a
-lower bound before applying the `previousPage` closure. Appending multiple pages
-into one result is handled by the separate infinite-query API, not by
-`PaginatedQueryState`.
+When managing lifecycle manually, pass a client with `start(using:)` or the
+`using:` navigation methods. After a client has been supplied, the no-argument
+overloads use that client. Returning to a previous page uses the `QueryClient`
+cache for that key. Use `canMoveToPreviousPage` to enforce a lower bound before
+applying the `previousPage` closure. Appending multiple pages into one result is
+handled by the separate infinite-query API, not by `PaginatedQueryState`.
 
 ## Infinite Queries
 
@@ -277,9 +325,9 @@ var body: some View {
 }
 ```
 
-Call `fetchNextPage(using:)` from a load-more row or scroll sentinel. The
-modifier owns subscription lifecycle and updates the state when the key or
-`enabled` flag changes.
+Call `fetchNextPage()` from a load-more row or scroll sentinel. The modifier
+owns subscription lifecycle, supplies the query client, and updates the state
+when the key or `enabled` flag changes.
 
 You can also use `InfiniteQueryState` directly when manually managing the
 lifecycle:
@@ -300,9 +348,11 @@ lifecycle:
 
 Call `start(using:)` from view appearance to subscribe and load the initial
 page according to `QueryObserverOptions`. Call `fetchNextPage(using:)` from a
-load-more row or scroll sentinel. `pages` and `pageParams` expose the
-accumulated data, `hasNextPage` reflects `getNextPageParam`, and
-`isFetchingNextPage` is scoped to next-page fetches.
+load-more row or scroll sentinel before a client has been supplied; after
+`start(using:)` or `.infiniteQuery(...)` supplies a client, `fetchNextPage()`
+and `refetch()` use that client. `pages` and `pageParams` expose the accumulated
+data, `hasNextPage` reflects `getNextPageParam`, and `isFetchingNextPage` is
+scoped to next-page fetches.
 
 `InfiniteQueryState` uses the same observer refetch policies as `QueryState`.
 Scene-active and network-reconnect triggers check the current client stale
@@ -322,10 +372,12 @@ while a refetch for the same key is pending. When the key changes, previous
 pages are cleared and are not used as placeholder data for the new key.
 Placeholder data is not written to the `QueryClient` cache.
 
-`refetch(using:)` reloads from `initialPageParam` and replaces accumulated data
-with the first page. The MVP adapter does not fetch previous pages, evict old
-pages, refetch every previously loaded page, reverse page order, or perform
-optimistic infinite updates.
+`refetch(using:)` loads `initialPageParam` when no pages are cached. If the key
+already has cached pages, it starts from the first stored page parameter,
+reloads the same number of pages sequentially, and replaces the accumulated
+data with the fresh sequence. Set `maxPages` on the query or view modifier to
+cap stored pages; next-page fetches beyond the limit drop the oldest pages. The
+adapter does not fetch previous pages or perform optimistic infinite updates.
 
 Infinite query selection transforms the full accumulated raw container:
 

@@ -396,15 +396,42 @@ Button("Create") {
 }
 ```
 
+## Paginated Query
+
+SunKit의 paginated-query는 두 가지 용례 중 선택할 수 있습니다. 기준은 현재 page를
+누가 소유해야 하는지입니다.
+
+`@PaginatedQueryBinding`은 page navigation을 query state의 책임으로 둘 때
+사용합니다. `PaginatedQueryState`가 `input`, `page`, next/previous-page closure,
+현재 subscription을 소유합니다. `.paginatedQuery(...)` modifier는 `body`에서 만든
+최신 key와 fetcher를 state에 공급하고, input이 바뀌면 page를 `initialPage`로
+reset합니다. 화면 instance가 살아 있는 동안 SwiftUI body가 다시 계산되어도 page가
+유지되어야 하는 일반적인 pagination 화면에 적합합니다.
+
+반대로 view가 page를 명시적으로 소유해야 하면 일반 `@State`와 `@QueryBinding`을
+함께 사용합니다. page를 query key에 넣고 버튼 같은 UI에서 `@State` 값을 변경합니다.
+이 방식에서는 reset 동작을 SwiftUI state lifecycle이 결정합니다. 예를 들어 push된
+화면을 뒤로 pop해 해제한 뒤 다시 들어오면 `@State private var page = 1` 초기값에
+따라 다시 1 page부터 시작합니다. Query layer는 현재 key를 observe하고 각
+`(input, page)` result를 cache할 뿐입니다.
+
+두 방식 모두 반환 data를 바꾸는 값은 반드시 key에 포함해야 합니다. 최근에 load한
+page로 돌아갈 때 cached value가 아직 fresh라면 `QueryClient` cache를 재사용할 수
+있습니다.
+
 ## Infinite Query
 
-SunKit의 MVP infinite-query model은 next-page-only입니다. `fetchInfiniteQuery`와
-`refetch(using:)`는 `initialPageParam`에서 다시 load하고 accumulated data를 첫 page로
-교체합니다. 이전에 load된 모든 page를 다시 refetch하지는 않습니다. `fetchNextPage`는
+SunKit의 infinite-query model은 next-page-only입니다. `fetchInfiniteQuery`와
+`refetch(using:)`는 cached page가 없을 때 `initialPageParam`을 load합니다. 이미
+cached page가 있으면 첫 stored page parameter에서 시작해 같은 수의 loaded page를
+순차 refetch하고 fresh sequence로 accumulated data를 교체합니다. `fetchNextPage`는
 `getNextPageParam`이 값을 반환할 때 다음 page 하나를 append합니다.
 `getNextPageParam`이 `nil`을 반환하면 fetch는 시작되지 않고 현재 cached result가
-반환됩니다. Previous-page fetch, page eviction, reversed page order, optimistic
-infinite update는 MVP 범위가 아닙니다.
+반환됩니다. Previous-page fetch와 optimistic infinite update는 MVP 범위가 아닙니다.
+
+`maxPages`로 저장할 page 수를 제한할 수 있습니다. next-page-only model에서는
+제한을 초과해 다음 page를 가져오면 가장 오래된 page를 제거하고 `pages`와
+`pageParams`의 정렬을 유지합니다.
 
 `fetchNextPage` request가 이미 in-flight인 동안 invalidation이 발생하면, append가
 해당 key의 successful fetch로 완료되어 invalidation state를 clear할 수 있습니다.
@@ -421,13 +448,14 @@ var body: some View {
         }
         if feed.hasNextPage {
             ProgressView()
-                .onAppear { feed.fetchNextPage(using: client) }
+                .onAppear { feed.fetchNextPage() }
         }
     }
     .infiniteQuery(
         $feed,
         key: ["feed"],
         initialPageParam: 1,
+        maxPages: 5,
         getNextPageParam: { lastPage, _ in lastPage.nextPage }
     ) { page in
         try await api.feed(page: page)

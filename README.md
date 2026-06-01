@@ -400,15 +400,43 @@ Button("Create") {
 }
 ```
 
+## Paginated Queries
+
+SunKit supports two paginated-query styles. Choose based on who should own the
+current page.
+
+Use `@PaginatedQueryBinding` when page navigation is part of the query state.
+`PaginatedQueryState` owns `input`, `page`, next/previous-page closures, and
+the current subscription. The `.paginatedQuery(...)` modifier supplies the
+latest key and fetcher from `body`; input changes reset the page to
+`initialPage`. This is the convenient default for screens where the page should
+survive SwiftUI body re-renders while the screen instance remains alive.
+
+Use regular `@State` plus `@QueryBinding` when the view should own the page
+explicitly. Put the page in the query key and update the `@State` value from
+buttons or other UI. In this style, SwiftUI owns reset behavior: if a pushed
+screen is popped and later recreated, `@State private var page = 1` starts from
+page 1 again. The query layer only observes the current key and caches each
+`(input, page)` result.
+
+In both styles, every value that changes the returned page must be part of the
+key. Returning to a recently loaded page can reuse the `QueryClient` cache when
+the cached value is still fresh.
+
 ## Infinite Queries
 
-SunKit's MVP infinite-query model is next-page-only. `fetchInfiniteQuery` and
-`refetch(using:)` reload from `initialPageParam` and replace accumulated data
-with the first page; they do not refetch every previously loaded page.
-`fetchNextPage` appends one next page when `getNextPageParam` returns a value.
-If `getNextPageParam` returns `nil`, no fetch starts and the current cached
-result is returned. Previous-page fetches, page eviction, reversed page order,
+SunKit's infinite-query model is next-page-only. `fetchInfiniteQuery` and
+`refetch(using:)` load `initialPageParam` when no pages are cached; when pages
+are already cached, they start from the first stored page parameter, refetch the
+same number of loaded pages sequentially, and replace the accumulated data with
+the fresh sequence. `fetchNextPage` appends one next page when
+`getNextPageParam` returns a value. If `getNextPageParam` returns `nil`, no
+fetch starts and the current cached result is returned. Previous-page fetches
 and optimistic infinite updates are not part of the MVP.
+
+Use `maxPages` to cap stored pages. In the next-page-only model, fetching
+beyond the limit drops the oldest pages while keeping `pages` and `pageParams`
+aligned.
 
 If invalidation happens while a `fetchNextPage` request is already in flight,
 the append may complete as the successful fetch for that key and clear the
@@ -426,13 +454,14 @@ var body: some View {
         }
         if feed.hasNextPage {
             ProgressView()
-                .onAppear { feed.fetchNextPage(using: client) }
+                .onAppear { feed.fetchNextPage() }
         }
     }
     .infiniteQuery(
         $feed,
         key: ["feed"],
         initialPageParam: 1,
+        maxPages: 5,
         getNextPageParam: { lastPage, _ in lastPage.nextPage }
     ) { page in
         try await api.feed(page: page)

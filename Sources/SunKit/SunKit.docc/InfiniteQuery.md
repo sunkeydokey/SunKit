@@ -23,14 +23,21 @@ let firstPage = await client.fetchInfiniteQuery(repositories)
 let firstTwoPages = await client.fetchNextPage(repositories)
 ```
 
-`fetchInfiniteQuery(_:)` loads `initialPageParam` and replaces the accumulated
-data with a single first page. It does not refetch every previously loaded
-page. `fetchNextPage(_:)` reads the current cached `InfiniteData`, computes
-the next page parameter from the last page, fetches that page, and appends it.
+`fetchInfiniteQuery(_:)` loads `initialPageParam` when no pages are cached. If
+the key already has cached pages, it starts from the first stored page
+parameter, reloads the same number of pages sequentially, and replaces the
+accumulated data with the fresh sequence. If `getNextPageParam` returns `nil`
+before that count is reached, refetch stops early. `fetchNextPage(_:)` reads
+the current cached `InfiniteData`, computes the next page parameter from the
+last page, fetches that page, and appends it.
 
 If no cached page exists, `fetchNextPage(_:)` loads the initial page. If
 `getNextPageParam` returns `nil`, no fetch is started and the current cached
 result is returned.
+
+Set `maxPages` on ``InfiniteQuery`` to cap the number of stored pages. In the
+next-page-only model, fetching beyond the limit drops the oldest pages and
+keeps `pages` and `pageParams` aligned.
 
 If invalidation happens while a `fetchNextPage(_:)` request is already in
 flight, the append may finish as the successful fetch for that key. That
@@ -45,9 +52,9 @@ raw container. For example, a state can store
 
 ## MVP Limitations
 
-SunKit's MVP infinite-query model is next-page-only. It does not provide
-previous-page fetches, loaded-page refetch, max page counts, page eviction,
-reversed order, or optimistic infinite updates.
+SunKit's infinite-query model is next-page-only. It does not provide
+previous-page fetches or optimistic infinite updates. Reversed rendering can be
+done with observer-local `select` without changing the cached order.
 
 Concurrent `fetchNextPage(_:)` calls for the same typed key join the same
 in-flight task through the normal query dedupe path, so a next page is appended
