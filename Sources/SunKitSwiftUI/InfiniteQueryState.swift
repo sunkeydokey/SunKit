@@ -81,6 +81,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     @ObservationIgnored private var isObserving = false
     @ObservationIgnored private var currentEnabled: Bool
     @ObservationIgnored nonisolated(unsafe) private var generation: UInt64 = 0
+    @ObservationIgnored private var currentClient: QueryClient?
     @ObservationIgnored private let sceneActiveNotificationName: Notification.Name
 
     static var sceneActiveNotificationName: Notification.Name {
@@ -179,7 +180,9 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
     /// scene-active or network-reconnect refetch triggers are armed and remain
     /// active until ``stop()`` is called.
     public func start(using client: QueryClient) {
+        currentClient = client
         stop()
+        currentClient = client
         startCurrentKey(using: client)
     }
 
@@ -203,12 +206,14 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         using client: QueryClient,
         enabled: Bool = true
     ) {
+        currentClient = client
         let previousKey = self.query?.key
         self.query = query
 
         guard previousKey == query.key else {
             currentEnabled = enabled
             stop()
+            currentClient = client
             result = nil
             rawResult = nil
             pages = []
@@ -260,6 +265,7 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
         localStaleTimer?.cancel()
         localStaleTimer = nil
         isObserving = false
+        currentClient = nil
         subscriptionTask?.cancel()
         subscriptionTask = nil
         fetchTask?.cancel()
@@ -280,10 +286,11 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
 
     /// Refetches the infinite query from its initial page.
     ///
-    /// MVP refetch replaces accumulated pages with the first page loaded from
-    /// `initialPageParam`. With ``PlaceholderData/keepPreviousData``, previous
-    /// pages remain visible as observer-local placeholder data while the
-    /// refetch is pending.
+    /// If the key already has cached pages, refetch starts from the first
+    /// stored page parameter and reloads the same number of pages sequentially.
+    /// With
+    /// ``PlaceholderData/keepPreviousData``, previous pages remain visible as
+    /// observer-local placeholder data while the refetch is pending.
     public func refetch(using client: QueryClient) {
         guard let query else {
             return
@@ -297,6 +304,17 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
             guard self.generation == gen else { return }
             self.apply(result, for: observedKey)
         }
+    }
+
+    /// Refetches the infinite query with the client most recently supplied by
+    /// ``start(using:)`` or ``update(query:using:enabled:)``.
+    public func refetch() {
+        guard let currentClient else {
+            assertionFailure("InfiniteQueryState.refetch() requires start(using:) or update(query:using:enabled:) to supply a QueryClient first.")
+            return
+        }
+
+        refetch(using: currentClient)
     }
 
     /// Fetches the next page and appends it when `hasNextPage` is `true`.
@@ -322,6 +340,17 @@ public final class InfiniteQueryState<PageParam: Sendable, Page: Sendable, Selec
             self.apply(result, for: observedKey)
             self.isFetchingNextPage = false
         }
+    }
+
+    /// Fetches the next page with the client most recently supplied by
+    /// ``start(using:)`` or ``update(query:using:enabled:)``.
+    public func fetchNextPage() {
+        guard let currentClient else {
+            assertionFailure("InfiniteQueryState.fetchNextPage() requires start(using:) or update(query:using:enabled:) to supply a QueryClient first.")
+            return
+        }
+
+        fetchNextPage(using: currentClient)
     }
 
     private func startCurrentKey(using client: QueryClient) {

@@ -3,8 +3,6 @@ import SunKit
 import SunKitSwiftUI
 
 struct PaginatedQueryExampleScreen: View {
-    @Environment(\.queryClient) private var client
-
     private static let pageCacheOptions = QueryCacheOptions(staleTime: 120)
     @State private var searchText = "swift language:swift"
     @State private var submittedSearchText = "swift language:swift"
@@ -72,7 +70,7 @@ struct PaginatedQueryExampleScreen: View {
 
                 HStack {
                     Button {
-                        repositories.previousPage(using: client)
+                        repositories.previousPage()
                     } label: {
                         Label("Previous", systemImage: "chevron.left")
                     }
@@ -82,7 +80,7 @@ struct PaginatedQueryExampleScreen: View {
                     Spacer()
 
                     Button {
-                        repositories.nextPage(using: client)
+                        repositories.nextPage()
                     } label: {
                         Label("Next", systemImage: "chevron.right")
                     }

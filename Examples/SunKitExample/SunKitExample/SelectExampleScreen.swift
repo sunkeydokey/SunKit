@@ -140,7 +140,7 @@ struct SelectExampleScreen: View {
             }
 
             Button {
-                repositories.fetchNextPage(using: client)
+                repositories.fetchNextPage()
             } label: {
                 if repositories.isFetchingNextPage {
                     Label("Loading more", systemImage: "arrow.clockwise")

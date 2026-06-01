@@ -61,6 +61,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     @ObservationIgnored private var currentEnabled: Bool
     @ObservationIgnored nonisolated(unsafe) private var generation: UInt64 = 0
     @ObservationIgnored private var fetch: @Sendable () async throws -> RawValue
+    @ObservationIgnored private var currentClient: QueryClient?
     @ObservationIgnored private let sceneActiveNotificationName: Notification.Name
 
     static var sceneActiveNotificationName: Notification.Name {
@@ -150,7 +151,9 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
     /// network-reconnect refetch triggers are armed and remain active until
     /// ``stop()`` is called.
     public func start(using client: QueryClient) {
+        currentClient = client
         stop()
+        currentClient = client
         startCurrentKey(using: client)
     }
 
@@ -177,12 +180,14 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
         fetch: @escaping @Sendable () async throws -> RawValue,
         enabled: Bool = true
     ) {
+        currentClient = client
         let nextKey = QueryKey<RawValue>(key)
         self.fetch = fetch
 
         guard nextKey == self.key else {
             currentEnabled = enabled
             stop()
+            currentClient = client
             self.key = nextKey
             result = nil
             lastSuccessfulData = nil
@@ -277,6 +282,17 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
         }
     }
 
+    /// Fetches the query again with the client most recently supplied by
+    /// ``start(using:)`` or ``update(key:using:fetch:enabled:)``.
+    public func refetch() {
+        guard let currentClient else {
+            assertionFailure("QueryState.refetch() requires start(using:) or update(key:using:fetch:enabled:) to supply a QueryClient first.")
+            return
+        }
+
+        refetch(using: currentClient)
+    }
+
     /// Stops observing query publications and cancels all active refetch triggers.
     ///
     /// Cancels the periodic interval timer, the scene-active observer, the
@@ -288,6 +304,7 @@ public final class QueryState<RawValue: Sendable, SelectedValue: Sendable> {
         localStaleTimer?.cancel()
         localStaleTimer = nil
         stopRefetchTriggers()
+        currentClient = nil
         isObserving = false
         subscriptionTask?.cancel()
         subscriptionTask = nil

@@ -3,8 +3,6 @@ import SunKit
 import SunKitSwiftUI
 
 struct InfiniteQueryExampleScreen: View {
-    @Environment(\.queryClient) private var client
-
     private static let cacheOptions = QueryCacheOptions(staleTime: 60)
 
     private let queryText = "swift language:swift"
@@ -62,7 +60,7 @@ struct InfiniteQueryExampleScreen: View {
                 }
 
                 Button {
-                    repositories.fetchNextPage(using: client)
+                    repositories.fetchNextPage()
                 } label: {
                     if repositories.isFetchingNextPage {
                         Label("Loading more", systemImage: "arrow.clockwise")

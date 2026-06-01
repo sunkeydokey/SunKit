@@ -8,6 +8,11 @@ private struct UnconfiguredPaginatedQueryError: Error {}
 /// `PaginatedQueryState` keeps one state identity while changing the observed
 /// query key as input or page changes. It delegates cache storage,
 /// subscription, and fetching to an internal ``QueryState``.
+///
+/// Use this type when the pagination state should own the current page and
+/// next/previous navigation. If a view should own page reset behavior through
+/// SwiftUI state instead, store the page in `@State`, include it in a regular
+/// ``QueryBinding`` key, and let that view decide when the page resets.
 @MainActor
 @Observable
 public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue: Sendable, SelectedValue: Sendable> {
@@ -47,6 +52,7 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
     @ObservationIgnored private let canMoveToPreviousPage: @Sendable (Page) -> Bool
     @ObservationIgnored private let queryState: QueryState<RawValue, SelectedValue>
     @ObservationIgnored private var currentEnabled: Bool
+    @ObservationIgnored private var currentClient: QueryClient?
 
     /// Creates observable paginated query state from an async throwing raw-value fetcher.
     ///
@@ -135,44 +141,103 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
 
     /// Starts observing the current input and page with the provided client.
     public func start(using client: QueryClient) {
+        currentClient = client
         queryState.start(using: client)
     }
 
     /// Stops observing query publications and cancels active refetch triggers.
     public func stop() {
+        currentClient = nil
         queryState.stop()
     }
 
     /// Fetches the current input and page again with the provided client.
     public func refetch(using client: QueryClient) {
+        currentClient = client
         queryState.refetch(using: client)
+    }
+
+    /// Fetches the current input and page again with the client most recently
+    /// supplied by ``start(using:)`` or ``update(input:using:key:fetch:enabled:)``.
+    public func refetch() {
+        guard let currentClient else {
+            assertionFailure("PaginatedQueryState.refetch() requires start(using:) or update(input:using:key:fetch:enabled:) to supply a QueryClient first.")
+            return
+        }
+
+        refetch(using: currentClient)
     }
 
     /// Sets a new input and resets the page to `initialPage`.
     public func setInput(_ input: Input, using client: QueryClient) {
+        currentClient = client
         self.input = input
         page = initialPage
         updateQuery(using: client)
     }
 
+    /// Sets a new input and resets the page to `initialPage` using the most
+    /// recently supplied client.
+    public func setInput(_ input: Input) {
+        guard let currentClient else {
+            assertionFailure("PaginatedQueryState.setInput(_:) requires start(using:) or update(input:using:key:fetch:enabled:) to supply a QueryClient first.")
+            return
+        }
+
+        setInput(input, using: currentClient)
+    }
+
     /// Sets the current page parameter.
     public func setPage(_ page: Page, using client: QueryClient) {
+        currentClient = client
         self.page = page
         updateQuery(using: client)
     }
 
+    /// Sets the current page parameter using the most recently supplied client.
+    public func setPage(_ page: Page) {
+        guard let currentClient else {
+            assertionFailure("PaginatedQueryState.setPage(_:) requires start(using:) or update(input:using:key:fetch:enabled:) to supply a QueryClient first.")
+            return
+        }
+
+        setPage(page, using: currentClient)
+    }
+
     /// Advances to the next page parameter.
     public func nextPage(using client: QueryClient) {
+        currentClient = client
         setPage(nextPageValue(page), using: client)
+    }
+
+    /// Advances to the next page parameter using the most recently supplied client.
+    public func nextPage() {
+        guard let currentClient else {
+            assertionFailure("PaginatedQueryState.nextPage() requires start(using:) or update(input:using:key:fetch:enabled:) to supply a QueryClient first.")
+            return
+        }
+
+        nextPage(using: currentClient)
     }
 
     /// Moves to the previous page parameter.
     public func previousPage(using client: QueryClient) {
+        currentClient = client
         guard canMoveToPreviousPage(page) else {
             return
         }
 
         setPage(previousPageValue(page), using: client)
+    }
+
+    /// Moves to the previous page parameter using the most recently supplied client.
+    public func previousPage() {
+        guard let currentClient else {
+            assertionFailure("PaginatedQueryState.previousPage() requires start(using:) or update(input:using:key:fetch:enabled:) to supply a QueryClient first.")
+            return
+        }
+
+        previousPage(using: currentClient)
     }
 
     private func updateQuery(using client: QueryClient) {
@@ -196,6 +261,7 @@ public final class PaginatedQueryState<Input: Sendable, Page: Sendable, RawValue
         fetch: @escaping @Sendable (Input, Page) async throws -> RawValue,
         enabled: Bool = true
     ) where Input: Hashable {
+        currentClient = client
         keyBuilder = key
         self.fetch = fetch
         currentEnabled = enabled

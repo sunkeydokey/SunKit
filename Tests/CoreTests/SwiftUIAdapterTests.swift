@@ -1430,6 +1430,35 @@ func queryBindingHandleConfiguresAndFetchesState() async {
 
 @Test
 @MainActor
+func queryBindingStateRefetchUsesInjectedClient() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let queryBinding = QueryBinding<Int, Int>(
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    )
+    let state = queryBinding.wrappedValue
+
+    queryBinding.projectedValue.apply(
+        key: ["query-binding", "refetch-sugar"],
+        using: client,
+        fetch: { await counter.next() },
+        enabled: true
+    )
+    #expect(await eventuallyOnMainActor { state.result?.data == 1 })
+
+    state.refetch()
+
+    #expect(await eventuallyOnMainActor { state.result?.data == 2 })
+    #expect(await counter.value() == 2)
+    state.stop()
+}
+
+@Test
+@MainActor
 func queryBindingHandleUpdatesKeyAndFetcher() async {
     let client = QueryClient()
     let queryBinding = QueryBinding<String, String>(
@@ -1604,6 +1633,66 @@ func infiniteQueryBindingHandleUpdatesKeyAndFetchNextPageUsesLatestQuery() async
 
 @Test
 @MainActor
+func infiniteQueryBindingStateFetchNextPageUsesInjectedClient() async {
+    let client = QueryClient()
+    let queryBinding = InfiniteQueryBinding<Int, String, InfiniteData<Int, String>>(
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    )
+    let state = queryBinding.wrappedValue
+    let query = InfiniteQuery<Int, String>(
+        key: ["infinite-query-binding", "next-page-sugar"],
+        initialPageParam: 1,
+        getNextPageParam: { _, pages in pages.count == 1 ? 2 : nil }
+    ) { page in
+        "page-\(page)"
+    }
+
+    queryBinding.projectedValue.apply(query: query, using: client, enabled: true)
+    #expect(await eventuallyOnMainActor { state.pages == ["page-1"] })
+
+    state.fetchNextPage()
+
+    #expect(await eventuallyOnMainActor { state.pages == ["page-1", "page-2"] })
+    state.stop()
+}
+
+@Test
+@MainActor
+func infiniteQueryBindingStateRefetchUsesInjectedClient() async {
+    let client = QueryClient()
+    let counter = SwiftUIFetchCounter()
+    let queryBinding = InfiniteQueryBinding<Int, Int, InfiniteData<Int, Int>>(
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        )
+    )
+    let state = queryBinding.wrappedValue
+    let query = InfiniteQuery<Int, Int>(
+        key: ["infinite-query-binding", "refetch-sugar"],
+        initialPageParam: 1,
+        getNextPageParam: { _, _ in nil }
+    ) { _ in
+        await counter.next()
+    }
+
+    queryBinding.projectedValue.apply(query: query, using: client, enabled: true)
+    #expect(await eventuallyOnMainActor { state.pages == [1] })
+
+    state.refetch()
+
+    #expect(await eventuallyOnMainActor { state.pages == [2] })
+    #expect(await counter.value() == 2)
+    state.stop()
+}
+
+@Test
+@MainActor
 func paginatedQueryStatePassesCacheOptionsToInternalQueryState() {
     let cacheOptions = QueryCacheOptions(staleTime: 120, gcTime: 240)
     let state = PaginatedQueryState<String, Int, Int, Int>(
@@ -1723,6 +1812,47 @@ func paginatedQueryBindingHandleInputChangeResetsPageAndUsesLatestFetcher() asyn
 
     #expect(state.page == 1)
     #expect(await eventuallyOnMainActor { state.result?.data == "two-latest-1" })
+    state.stop()
+}
+
+@Test
+@MainActor
+func paginatedQueryBindingStateNavigationUsesInjectedClient() async {
+    let client = QueryClient()
+    let queryBinding = PaginatedQueryBinding<String, Int, String, String>(
+        initialInput: "one",
+        initialPage: 1,
+        options: QueryObserverOptions(
+            refetchOnSubscribe: .always,
+            refetchOnSceneActive: .never,
+            refetchOnNetworkReconnect: .never
+        ),
+        nextPage: { $0 + 1 },
+        previousPage: { $0 - 1 },
+        canMoveToPreviousPage: { $0 > 1 }
+    )
+    let state = queryBinding.wrappedValue
+    let key: @Sendable (String, Int) -> [AnyQueryKeyPart] = { input, page in
+        ["paginated-query-binding", "navigation-sugar", AnyQueryKeyPart(input), AnyQueryKeyPart(page)]
+    }
+
+    queryBinding.projectedValue.apply(
+        input: "one",
+        using: client,
+        key: key,
+        fetch: { input, page in "\(input)-\(page)" },
+        enabled: true
+    )
+    #expect(await eventuallyOnMainActor { state.result?.data == "one-1" })
+
+    state.nextPage()
+    #expect(await eventuallyOnMainActor { state.page == 2 && state.result?.data == "one-2" })
+
+    state.previousPage()
+    #expect(await eventuallyOnMainActor { state.page == 1 && state.result?.data == "one-1" })
+
+    state.setInput("two")
+    #expect(await eventuallyOnMainActor { state.page == 1 && state.result?.data == "two-1" })
     state.stop()
 }
 
