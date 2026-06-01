@@ -17,6 +17,12 @@ struct ContentView: View {
                 }
 
                 NavigationLink {
+                    StateBackedPaginatedQueryExampleScreen()
+                } label: {
+                    Label("State Page Query", systemImage: "arrow.uturn.backward")
+                }
+
+                NavigationLink {
                     InfiniteQueryExampleScreen()
                 } label: {
                     Label("Infinite Query", systemImage: "arrow.down.to.line")
