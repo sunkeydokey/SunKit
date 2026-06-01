@@ -13,6 +13,9 @@ public struct InfiniteQuery<PageParam: Sendable, Page: Sendable>: Sendable {
     /// The page parameter used when loading or refetching the first page.
     public let initialPageParam: PageParam
 
+    /// The maximum number of pages to keep, or `nil` to keep every loaded page.
+    public let maxPages: Int?
+
     /// Returns the next page parameter from the current accumulated pages.
     ///
     /// Return `nil` when no next page is available.
@@ -27,6 +30,9 @@ public struct InfiniteQuery<PageParam: Sendable, Page: Sendable>: Sendable {
     ///   - initialPageParam: The page parameter used for the first page.
     ///   - options: Execution options for page fetches, or `nil` to use the
     ///     executing client's defaults.
+    ///   - maxPages: The maximum number of pages to keep, or `nil` to keep all
+    ///     loaded pages. When the limit is exceeded by a next-page fetch, the
+    ///     oldest pages are dropped.
     ///   - getNextPageParam: Returns the next page parameter, or `nil` when
     ///     the loaded pages are complete.
     ///   - fetchPage: The async operation that loads one page.
@@ -34,12 +40,15 @@ public struct InfiniteQuery<PageParam: Sendable, Page: Sendable>: Sendable {
         key: [AnyQueryKeyPart],
         initialPageParam: PageParam,
         options: QueryOptions? = nil,
+        maxPages: Int? = nil,
         getNextPageParam: @escaping @Sendable (Page, [Page]) -> PageParam?,
         fetchPage: @escaping @Sendable (PageParam) async throws -> Page
     ) {
+        precondition(maxPages == nil || maxPages! > 0, "maxPages must be greater than zero")
         self.key = QueryKey(key)
         self.initialPageParam = initialPageParam
         self.options = options
+        self.maxPages = maxPages
         self.getNextPageParam = getNextPageParam
         self.fetchPage = fetchPage
     }
@@ -51,6 +60,9 @@ public struct InfiniteQuery<PageParam: Sendable, Page: Sendable>: Sendable {
     ///   - initialPageParam: The page parameter used for the first page.
     ///   - options: Execution options for page fetches, or `nil` to use the
     ///     executing client's defaults.
+    ///   - maxPages: The maximum number of pages to keep, or `nil` to keep all
+    ///     loaded pages. When the limit is exceeded by a next-page fetch, the
+    ///     oldest pages are dropped.
     ///   - getNextPageParam: Returns the next page parameter, or `nil` when
     ///     the loaded pages are complete.
     ///   - fetchPage: The async operation that loads one page.
@@ -58,12 +70,15 @@ public struct InfiniteQuery<PageParam: Sendable, Page: Sendable>: Sendable {
         key: QueryKey<InfiniteData<PageParam, Page>>,
         initialPageParam: PageParam,
         options: QueryOptions? = nil,
+        maxPages: Int? = nil,
         getNextPageParam: @escaping @Sendable (Page, [Page]) -> PageParam?,
         fetchPage: @escaping @Sendable (PageParam) async throws -> Page
     ) {
+        precondition(maxPages == nil || maxPages! > 0, "maxPages must be greater than zero")
         self.key = key
         self.initialPageParam = initialPageParam
         self.options = options
+        self.maxPages = maxPages
         self.getNextPageParam = getNextPageParam
         self.fetchPage = fetchPage
     }

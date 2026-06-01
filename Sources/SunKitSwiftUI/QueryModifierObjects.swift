@@ -63,6 +63,7 @@ private struct InfiniteQueryBindingModifier<PageParam: Sendable, Page: Sendable,
     let key: [AnyQueryKeyPart]
     let initialPageParam: PageParam
     let queryOptions: QueryOptions?
+    let maxPages: Int?
     let enabled: Bool
     let getNextPageParam: @Sendable (Page, [Page]) -> PageParam?
     let fetchPage: @Sendable (PageParam) async throws -> Page
@@ -70,7 +71,7 @@ private struct InfiniteQueryBindingModifier<PageParam: Sendable, Page: Sendable,
     @Environment(\.queryClient) private var client
 
     private var token: InfiniteQueryBindingToken<PageParam, Page> {
-        InfiniteQueryBindingToken(key: QueryKey(key), enabled: enabled)
+        InfiniteQueryBindingToken(key: QueryKey(key), maxPages: maxPages, enabled: enabled)
     }
 
     func body(content: Content) -> some View {
@@ -91,6 +92,7 @@ private struct InfiniteQueryBindingModifier<PageParam: Sendable, Page: Sendable,
             key: key,
             initialPageParam: initialPageParam,
             options: queryOptions,
+            maxPages: maxPages,
             getNextPageParam: getNextPageParam,
             fetchPage: fetchPage
         )
@@ -100,6 +102,7 @@ private struct InfiniteQueryBindingModifier<PageParam: Sendable, Page: Sendable,
 
 private struct InfiniteQueryBindingToken<PageParam: Sendable, Page: Sendable>: Equatable {
     let key: QueryKey<InfiniteData<PageParam, Page>>
+    let maxPages: Int?
     let enabled: Bool
 }
 
@@ -363,11 +366,15 @@ private struct ParallelQueriesBindingToken<Token: Hashable & Sendable>: Equatabl
 
 public extension View {
     /// Configures and starts an infinite query binding from values available in `body`.
+    ///
+    /// `maxPages` limits the accumulated next-page data for this key. When a
+    /// next-page fetch exceeds the limit, the oldest pages are dropped.
     func infiniteQuery<PageParam: Sendable, Page: Sendable, SelectedValue: Sendable>(
         _ query: InfiniteQueryBindingHandle<PageParam, Page, SelectedValue>,
         key: [AnyQueryKeyPart],
         initialPageParam: PageParam,
         queryOptions: QueryOptions? = nil,
+        maxPages: Int? = nil,
         enabled: Bool = true,
         getNextPageParam: @escaping @Sendable (Page, [Page]) -> PageParam?,
         fetchPage: @escaping @Sendable (PageParam) async throws -> Page
@@ -378,6 +385,7 @@ public extension View {
                 key: key,
                 initialPageParam: initialPageParam,
                 queryOptions: queryOptions,
+                maxPages: maxPages,
                 enabled: enabled,
                 getNextPageParam: getNextPageParam,
                 fetchPage: fetchPage

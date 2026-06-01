@@ -153,7 +153,7 @@ func concurrentFetchNextPageDoesNotDuplicateAppend() async {
 }
 
 @Test
-func refetchInfiniteQueryReplacesPagesWithInitialPage() async {
+func refetchInfiniteQueryReloadsLoadedPagesSequentially() async {
     let client = QueryClient()
     let recorder = InfiniteFetchRecorder()
     let query = InfiniteQuery<Int, String>(
@@ -168,9 +168,108 @@ func refetchInfiniteQueryReplacesPagesWithInitialPage() async {
     _ = await client.fetchNextPage(query)
     let result = await client.fetchInfiniteQuery(query)
 
+    #expect(result.data?.pages == ["page-0", "page-1"])
+    #expect(result.data?.pageParams == [0, 1])
+    #expect(await recorder.values() == [0, 1, 0, 1])
+}
+
+@Test
+func refetchInfiniteQueryStopsWhenNextPageParamIsUnavailable() async {
+    let client = QueryClient()
+    let recorder = InfiniteFetchRecorder()
+    let key = QueryKey<InfiniteData<Int, String>>("infinite", "refetch", "shorter")
+    await client.setQueryData(
+        key,
+        InfiniteData(pages: ["old-0", "old-1"], pageParams: [0, 1])
+    )
+    let query = InfiniteQuery<Int, String>(
+        key: key,
+        initialPageParam: 0,
+        getNextPageParam: { _, _ in nil }
+    ) { page in
+        await recorder.fetch(page)
+    }
+
+    let result = await client.fetchInfiniteQuery(query)
+
     #expect(result.data?.pages == ["page-0"])
     #expect(result.data?.pageParams == [0])
-    #expect(await recorder.values() == [0, 1, 0])
+    #expect(await recorder.values() == [0])
+}
+
+@Test
+func fetchNextPageHonorsMaxPagesByDroppingOldestPages() async {
+    let client = QueryClient()
+    let recorder = InfiniteFetchRecorder()
+    let query = InfiniteQuery<Int, String>(
+        key: ["infinite", "max-pages"],
+        initialPageParam: 0,
+        maxPages: 2,
+        getNextPageParam: { _, pages in pages.count }
+    ) { page in
+        await recorder.fetch(page)
+    }
+
+    _ = await client.fetchInfiniteQuery(query)
+    _ = await client.fetchNextPage(query)
+    let result = await client.fetchNextPage(query)
+
+    #expect(result.data?.pages == ["page-1", "page-2"])
+    #expect(result.data?.pageParams == [1, 2])
+    #expect(await recorder.values() == [0, 1, 2])
+}
+
+@Test
+func refetchInfiniteQueryStartsFromFirstStoredPageParam() async {
+    let client = QueryClient()
+    let recorder = InfiniteFetchRecorder()
+    let query = InfiniteQuery<Int, String>(
+        key: ["infinite", "max-pages", "refetch-window"],
+        initialPageParam: 0,
+        maxPages: 2,
+        getNextPageParam: { lastPage, _ in
+            guard let current = Int(lastPage.dropFirst("page-".count)) else {
+                return nil
+            }
+            return current + 1
+        }
+    ) { page in
+        await recorder.fetch(page)
+    }
+
+    _ = await client.fetchInfiniteQuery(query)
+    _ = await client.fetchNextPage(query)
+    _ = await client.fetchNextPage(query)
+    let result = await client.fetchInfiniteQuery(query)
+
+    #expect(result.data?.pages == ["page-1", "page-2"])
+    #expect(result.data?.pageParams == [1, 2])
+    #expect(await recorder.values() == [0, 1, 2, 1, 2])
+}
+
+@Test
+func refetchInfiniteQueryHonorsMaxPages() async {
+    let client = QueryClient()
+    let recorder = InfiniteFetchRecorder()
+    let key = QueryKey<InfiniteData<Int, String>>("infinite", "max-pages", "refetch")
+    await client.setQueryData(
+        key,
+        InfiniteData(pages: ["old-0", "old-1", "old-2"], pageParams: [0, 1, 2])
+    )
+    let query = InfiniteQuery<Int, String>(
+        key: key,
+        initialPageParam: 0,
+        maxPages: 2,
+        getNextPageParam: { _, pages in pages.count }
+    ) { page in
+        await recorder.fetch(page)
+    }
+
+    let result = await client.fetchInfiniteQuery(query)
+
+    #expect(result.data?.pages == ["page-0", "page-1"])
+    #expect(result.data?.pageParams == [0, 1])
+    #expect(await recorder.values() == [0, 1])
 }
 
 @Test

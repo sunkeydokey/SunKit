@@ -120,20 +120,25 @@ public actor QueryClient {
         return ParallelQueryResults(storage: storage)
     }
 
-    /// Fetches the first page of an infinite query and stores accumulated data.
+    /// Fetches an infinite query and stores accumulated data.
     ///
-    /// The MVP infinite-query model refetches from `initialPageParam` and
-    /// replaces the accumulated pages with that single first page. It does not
-    /// refetch every previously loaded page or perform previous-page fetches.
+    /// If this key already has cached pages, refetching starts from the first
+    /// stored page parameter and reloads the same number of pages sequentially,
+    /// stopping early when `getNextPageParam` returns `nil`. If the key has no
+    /// cached pages, only `initialPageParam` is loaded.
     @discardableResult
     public func fetchInfiniteQuery<PageParam: Sendable, Page: Sendable>(
         _ query: InfiniteQuery<PageParam, Page>
     ) async -> QueryResult<InfiniteData<PageParam, Page>> {
-        await fetchQuery(Query(key: query.key, options: query.options) {
-            let page = try await query.fetchPage(query.initialPageParam)
-            return InfiniteData(
-                pages: [page],
-                pageParams: [query.initialPageParam]
+        let currentData = existingEntry(for: query.key)?.result.data
+        let targetPageCount = currentData?.pages.count ?? 1
+        let limitedTargetPageCount = query.maxPages.map { min(targetPageCount, $0) } ?? targetPageCount
+        let firstPageParam = currentData?.pageParams.first ?? query.initialPageParam
+        return await fetchQuery(Query(key: query.key, options: query.options) {
+            return try await Self.fetchInfiniteData(
+                query,
+                firstPageParam: firstPageParam,
+                targetPageCount: limitedTargetPageCount
             )
         })
     }
@@ -168,11 +173,46 @@ public actor QueryClient {
 
         return await fetchQuery(Query(key: query.key, options: query.options) {
             let nextPage = try await query.fetchPage(nextPageParam)
-            return InfiniteData(
+            let data = InfiniteData(
                 pages: current.pages + [nextPage],
                 pageParams: current.pageParams + [nextPageParam]
             )
+            if let maxPages = query.maxPages, data.pages.count > maxPages {
+                let overflow = data.pages.count - maxPages
+                return InfiniteData(
+                    pages: Array(data.pages.dropFirst(overflow)),
+                    pageParams: Array(data.pageParams.dropFirst(overflow))
+                )
+            }
+            return InfiniteData(
+                pages: data.pages,
+                pageParams: data.pageParams
+            )
         })
+    }
+
+    private nonisolated static func fetchInfiniteData<PageParam: Sendable, Page: Sendable>(
+        _ query: InfiniteQuery<PageParam, Page>,
+        firstPageParam: PageParam,
+        targetPageCount: Int
+    ) async throws -> InfiniteData<PageParam, Page> {
+        var pages: [Page] = []
+        var pageParams: [PageParam] = []
+        var pageParam = firstPageParam
+
+        while pages.count < max(targetPageCount, 1) {
+            let page = try await query.fetchPage(pageParam)
+            pages.append(page)
+            pageParams.append(pageParam)
+
+            guard pages.count < targetPageCount,
+                  let nextPageParam = query.getNextPageParam(page, pages) else {
+                break
+            }
+            pageParam = nextPageParam
+        }
+
+        return InfiniteData(pages: pages, pageParams: pageParams)
     }
 
     /// Returns cached fresh data for a query or fetches it when the cache is stale.
