@@ -445,10 +445,39 @@ struct CreateProjectView: View {
 }
 ```
 
-Calling `mutate(_:using:)` cancels any in-flight mutation owned by that state
-object, publishes `.pending`, then publishes success data or failure error on
-the main actor. `reset()` cancels the current task and returns the result to
-idle.
+When the mutation is only used from a SwiftUI view hierarchy that already has a
+query client in the environment, `@MutationBinding` removes the explicit client
+argument:
+
+```swift
+struct CreateProjectView: View {
+    @MutationBinding(
+        options: MutationOptions<CreateProjectInput, Project>(
+            onSuccess: { _, _, client in
+                await client.invalidateQueries(AnyQueryKey("projects"))
+            }
+        ),
+        run: { input in
+            try await api.createProject(input)
+        }
+    )
+    private var createProject: MutationState<CreateProjectInput, Project>
+
+    var body: some View {
+        Button("Create") {
+            createProject.mutate(input)
+        }
+        .disabled(createProject.isPending)
+    }
+}
+```
+
+Calling `mutate(_:)` from a `@MutationBinding` state uses the `QueryClient` in
+the SwiftUI environment. Calling `mutate(_:using:)` keeps the explicit-client
+path available for direct `MutationState` usage. Both paths cancel any
+in-flight mutation owned by that state object, publish `.pending`, then publish
+success data or failure error on the main actor. `reset()` cancels the current
+task and returns the result to idle.
 
 Render mutation failures from `isError` and `error`. `MutationState` does not
 report retry-attempt counts; a failed mutation result uses `failureCount == 1`

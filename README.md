@@ -77,7 +77,7 @@ Import only what you need:
 
 ```swift
 import SunKit          // Core — QueryClient, Query, Mutation, QueryKey
-import SunKitSwiftUI   // SwiftUI adapters — QueryBinding, MutationState, etc.
+import SunKitSwiftUI   // SwiftUI adapters — QueryBinding, MutationBinding, etc.
 ```
 
 ## Core Usage
@@ -372,15 +372,14 @@ QueryObserverOptions(placeholderData: .keepPreviousData)
 
 ## Mutations
 
-Mutations do not invalidate queries automatically. Update or invalidate related
-queries explicitly from callbacks or after success:
+Mutations do not invalidate queries automatically. Invalidate related queries
+explicitly from callbacks or after success:
 
 ```swift
 let createProject = Mutation<CreateProjectInput, Project>(
     options: MutationOptions(
-        onSuccess: { project, _, client in
+        onSuccess: { _, _, client in
             await client.invalidateQueries(AnyQueryKey("projects"))
-            await client.setQueryData(QueryKey<Project>("project", project.id), project)
         }
     )
 ) { input in
@@ -397,6 +396,27 @@ In SwiftUI, use `MutationState`:
 
 Button("Create") {
     createProject.mutate(input, using: client)
+}
+```
+
+Use `@MutationBinding` when the view should read the `QueryClient` from the
+SwiftUI environment:
+
+```swift
+@MutationBinding(
+    options: MutationOptions<CreateProjectInput, Project>(
+        onSuccess: { _, _, client in
+            await client.invalidateQueries(AnyQueryKey("projects"))
+        }
+    ),
+    run: { input in
+        try await api.createProject(input)
+    }
+)
+private var createProject: MutationState<CreateProjectInput, Project>
+
+Button("Create") {
+    createProject.mutate(input)
 }
 ```
 

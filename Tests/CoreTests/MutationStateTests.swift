@@ -136,3 +136,88 @@ func mutationStateSecondCallCancelsPreviousAndReturnsNewResult() async {
     #expect(await eventuallyOnMainActor { state.result.isSuccess })
     #expect(state.result.data == "result-2")
 }
+
+@Test
+@MainActor
+func mutationBindingCreatesIdleMutationState() {
+    let binding = MutationBinding(mutation: Mutation<Int, String> { input in
+        "result-\(input)"
+    })
+
+    #expect(binding.wrappedValue.result.isIdle)
+    #expect(binding.wrappedValue.result.data == nil)
+    #expect(binding.wrappedValue.result.error == nil)
+}
+
+@Test
+@MainActor
+func mutationBindingStateMutatesUsingInjectedClient() async {
+    let client = QueryClient()
+    let binding = MutationBinding(mutation: Mutation<Int, String> { input in
+        "result-\(input)"
+    })
+    let state = binding.wrappedValue
+
+    state.setClient(client)
+    state.mutate(1)
+    #expect(state.result.isPending)
+
+    #expect(await eventuallyOnMainActor { state.result.isSuccess })
+    #expect(state.result.data == "result-1")
+}
+
+@Test
+@MainActor
+func mutationBindingStatePreservesFailureState() async {
+    let client = QueryClient()
+    let binding = MutationBinding(mutation: Mutation<Int, String> { _ in
+        throw MutationStateTestError.failed
+    })
+    let state = binding.wrappedValue
+
+    state.setClient(client)
+    state.mutate(1)
+
+    #expect(await eventuallyOnMainActor { state.result.isError })
+    #expect(state.result.error is MutationStateTestError)
+    #expect(state.result.failureCount == 1)
+    #expect(state.result.data == nil)
+}
+
+@Test
+@MainActor
+func mutationBindingStateResetClearsResult() async {
+    let client = QueryClient()
+    let binding = MutationBinding(mutation: Mutation<Int, String> { input in
+        "result-\(input)"
+    })
+    let state = binding.wrappedValue
+
+    state.setClient(client)
+    state.mutate(1)
+    #expect(await eventuallyOnMainActor { state.result.isSuccess })
+
+    state.reset()
+    #expect(state.result.isIdle)
+    #expect(state.result.data == nil)
+}
+
+@Test
+@MainActor
+func mutationBindingStateSecondCallPreventsStaleResult() async {
+    let client = QueryClient()
+    let binding = MutationBinding(mutation: Mutation<Int, String> { input in
+        if input == 1 {
+            try await Task.sleep(nanoseconds: 500_000_000)
+        }
+        return "result-\(input)"
+    })
+    let state = binding.wrappedValue
+
+    state.setClient(client)
+    state.mutate(1)
+    state.mutate(2)
+
+    #expect(await eventuallyOnMainActor { state.result.isSuccess })
+    #expect(state.result.data == "result-2")
+}

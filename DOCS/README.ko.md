@@ -77,7 +77,7 @@ targets: [
 
 ```swift
 import SunKit          // Core - QueryClient, Query, Mutation, QueryKey
-import SunKitSwiftUI   // SwiftUI adapters - QueryBinding, MutationState, etc.
+import SunKitSwiftUI   // SwiftUI adapters - QueryBinding, MutationBinding, etc.
 ```
 
 ## Core 사용법
@@ -369,14 +369,13 @@ Stale value가 표시되는 동안 `result.isPlaceholderData`는 `true`입니다
 ## Mutation
 
 Mutation은 query를 자동으로 invalidate하지 않습니다. Callback 또는 success 이후에
-관련 query를 명시적으로 update하거나 invalidate하세요.
+관련 query를 명시적으로 invalidate하세요.
 
 ```swift
 let createProject = Mutation<CreateProjectInput, Project>(
     options: MutationOptions(
-        onSuccess: { project, _, client in
+        onSuccess: { _, _, client in
             await client.invalidateQueries(AnyQueryKey("projects"))
-            await client.setQueryData(QueryKey<Project>("project", project.id), project)
         }
     )
 ) { input in
@@ -393,6 +392,27 @@ SwiftUI에서는 `MutationState`를 사용합니다.
 
 Button("Create") {
     createProject.mutate(input, using: client)
+}
+```
+
+SwiftUI environment의 `QueryClient`를 사용하려면 `@MutationBinding`으로 client
+전달을 생략할 수 있습니다.
+
+```swift
+@MutationBinding(
+    options: MutationOptions<CreateProjectInput, Project>(
+        onSuccess: { _, _, client in
+            await client.invalidateQueries(AnyQueryKey("projects"))
+        }
+    ),
+    run: { input in
+        try await api.createProject(input)
+    }
+)
+private var createProject: MutationState<CreateProjectInput, Project>
+
+Button("Create") {
+    createProject.mutate(input)
 }
 ```
 
