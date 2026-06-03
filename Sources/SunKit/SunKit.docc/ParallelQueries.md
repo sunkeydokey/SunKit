@@ -60,5 +60,5 @@ semantics and may continue when they are already shared with other callers.
 
 ## Limitations
 
-Parallel Queries accept only regular `Query<Value>` declarations in v0.1.
+Parallel Queries accept only regular `Query<Value>` declarations in 0.2.
 `InfiniteQuery` batching is intentionally excluded.

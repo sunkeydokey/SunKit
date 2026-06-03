@@ -9,7 +9,7 @@ state.
 invalidation scope. It is not `@MainActor`; UI adapters choose how to deliver
 changes to the main actor or a dispatch queue.
 
-The v0.1 cache is memory-only. It is intended for server-state lifecycle
+The 0.2 cache is memory-only. It is intended for server-state lifecycle
 management while the app process is alive; it does not persist data to disk or
 resume offline mutations after restart.
 
@@ -106,4 +106,4 @@ The batch itself does not throw. A failed query is returned as a failed
 Looking up a key returns `nil` only when the batch result has no stored result
 for that typed key; failure is represented by `QueryResult.isError`.
 Duplicate typed keys in one batch use first-wins semantics. `InfiniteQuery`
-batching is not part of v0.1.
+batching is not part of the 0.2 API surface.

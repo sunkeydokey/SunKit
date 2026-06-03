@@ -8,8 +8,8 @@ Swift apps.
 It manages query cache lifecycle, stale state, in-flight request deduplication,
 subscriptions, invalidation, mutations, and SwiftUI binding. It does not wrap a
 networking stack. Use `URLSession`, Alamofire, a generated SDK, or any async
-operation that fits your app. The v0.1 preview is SwiftUI-first and scoped to
-mobile Apple platform MVPs, not a broad production-ready data framework.
+operation that fits your app. The 0.2 line is SwiftUI-first and scoped to
+mobile Apple platform apps, not a broad production-ready data framework.
 
 SunKit's core rule is simple: the query key is the source of truth. A key should
 describe the server data being read, not the view that happens to read it. When
@@ -200,7 +200,7 @@ let query = Query(key: key) { completion in
 ```
 
 The completion must be called exactly once. Cancellation of the underlying
-operation is not defined in v0.1.
+operation is not part of the 0.2 API surface.
 
 ## SwiftUI Usage
 

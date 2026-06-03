@@ -7,8 +7,8 @@ SunKit은 Swift 앱을 위한 가벼운 메모리 캐시 및 서버 상태 관�
 SunKit은 query cache lifecycle, stale 상태, in-flight request deduplication,
 subscription, invalidation, mutation, SwiftUI binding을 관리합니다. 네트워킹
 스택을 감싸지는 않습니다. 앱에 맞는 `URLSession`, Alamofire, generated SDK,
-또는 임의의 async 작업을 그대로 사용하면 됩니다. v0.1 preview는 SwiftUI 우선
-모바일 Apple platform MVP 범위이며, 광범위한 production-ready data framework를
+또는 임의의 async 작업을 그대로 사용하면 됩니다. 0.2 라인은 SwiftUI 우선
+모바일 Apple platform 앱 범위이며, 광범위한 production-ready data framework를
 목표로 하지 않습니다.
 
 SunKit의 핵심 규칙은 단순합니다. query key가 진실 공급원입니다. key는 그 key를
@@ -198,7 +198,7 @@ let query = Query(key: key) { completion in
 ```
 
 Completion은 정확히 한 번 호출되어야 합니다. underlying operation의 cancellation은
-v0.1에서 정의하지 않습니다.
+0.2 API surface에 포함되지 않습니다.
 
 ## SwiftUI 사용법
 
